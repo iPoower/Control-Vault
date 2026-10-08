@@ -4,6 +4,7 @@
 
 import { decrypt, encrypt, generateKey, sameHash, sha256 } from './core/crypto';
 import { countCollections, diffPayload } from './core/diff';
+import { initialMode } from './core/mode';
 import { createStore, loadSettings, type State } from './core/store';
 import type { AppId, OpEvent, Payload, Scenario, Version } from './core/types';
 import { safeFileName, validateImport, validatePayload } from './core/validate';
@@ -15,10 +16,13 @@ const GIB = 1024 ** 3;
 const TIB = 1024 ** 4;
 
 const now = Date.now();
+const mode = typeof window === 'undefined' ? 'demo' : initialMode();
 const initial: State = {
   ready: false,
+  mode,
+  drive: { auth: 'signed-out', scopes: [], roots: [] },
   scenario: 'normal',
-  connectivity: { online: typeof navigator === 'undefined' ? true : navigator.onLine, google: 'connected', supabase: 'unknown' },
+  connectivity: { online: typeof navigator === 'undefined' ? true : navigator.onLine, google: mode === 'drive' ? 'disconnected' : 'connected', supabase: 'unknown' },
   apps: demoApps(now),
   versions: [],
   events: [],
@@ -43,6 +47,13 @@ export { ROOT_ID, FOLDER };
 let sessionKey: CryptoKey;
 
 export async function boot() {
+  if (store.get().mode === 'drive') {
+    // Mode Google Drive : aucune donnée de démonstration n'est créée.
+    const { bootDrive } = await import('./drive');
+    await bootDrive();
+    store.set({ ready: true });
+    return;
+  }
   sessionKey = await generateKey();
   const seed = await seedDemo(drive, store.get().apps, sessionKey, now);
   store.set({ versions: seed.versions, events: seed.events, catalog: [...drive.items.values()] });
@@ -53,6 +64,10 @@ export async function boot() {
 /** Re-vérifie réellement chaque source. Rien n'est supposé. */
 export async function refreshConnectivity() {
   const s = store.get();
+  if (s.mode === 'drive') {
+    const { refreshDrive } = await import('./drive');
+    return refreshDrive();
+  }
   const online = browserOnline() && s.scenario !== 'offline';
   const google = s.scenario === 'auth-expired' ? 'expired' : s.connectivity.google === 'disconnected' ? 'disconnected' : 'connected';
   let supabase: State['connectivity']['supabase'] = 'unknown';
@@ -79,7 +94,7 @@ export function reconnectGoogle() {
   return setScenario(store.get().scenario === 'auth-expired' ? 'normal' : store.get().scenario);
 }
 
-function pushEvent(e: OpEvent) {
+export function pushEvent(e: OpEvent) {
   const s = store.get();
   let events = [e, ...s.events];
   // Une réussite clôt les échecs précédents de la même opération.

@@ -25,7 +25,7 @@ import { HEALTH_LABEL, pill } from '../ui/parts';
 
 // ─── Liste d'étapes ────────────────────────────────────────────────────────
 
-function stepList(labels: string[]) {
+export function stepList(labels: string[]) {
   const items = labels.map((label, i) => {
     const mark = h('span', { class: 'step-mark', 'aria-hidden': 'true' }, String(i + 1));
     const note = h('div', { class: 'step-note' });
@@ -66,7 +66,7 @@ function stepList(labels: string[]) {
   return { el, update };
 }
 
-function seal() {
+export function seal() {
   return svg(
     'svg',
     { viewBox: '0 0 52 52', class: 'outcome-seal', 'aria-hidden': 'true', fill: 'none', stroke: 'currentColor', 'stroke-width': 2.4, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' },
@@ -75,7 +75,7 @@ function seal() {
   );
 }
 
-function failureSeal() {
+export function failureSeal() {
   const s = icon('alert');
   s.classList.add('outcome-seal');
   return s;

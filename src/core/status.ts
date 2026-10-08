@@ -14,7 +14,7 @@ export interface AppSnapshot {
 }
 
 export interface Segment {
-  key: 'drive' | 'supabase' | AppId;
+  key: string;
   label: string;
   health: Health;
   detail: string;
@@ -25,7 +25,8 @@ export type IntentKind =
   | { kind: 'retry'; appId: AppId }
   | { kind: 'backup'; appId: AppId }
   | { kind: 'run-queue' }
-  | { kind: 'open-security' };
+  | { kind: 'open-security' }
+  | { kind: 'grant' };
 
 export interface Issue {
   id: string;

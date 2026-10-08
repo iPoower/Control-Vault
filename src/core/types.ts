@@ -65,9 +65,13 @@ export interface DriveItem {
   versionId?: string;
   /** Dossier existant côté Drive (ne jamais recréer ni déplacer). */
   pinned?: boolean;
+  mimeType?: string;
+  /** Empreinte fournie par Google Drive (fichiers binaires uniquement). */
+  sha256?: string;
+  webViewLink?: string;
 }
 
-export type OpType = 'backup' | 'restore' | 'safety' | 'import' | 'verify';
+export type OpType = 'backup' | 'restore' | 'safety' | 'import' | 'verify' | 'connect' | 'grant' | 'test-upload';
 export type OpResult = 'success' | 'failed' | 'cancelled';
 export type Integrity = 'verified' | 'mismatch' | 'not-checked';
 
@@ -85,6 +89,10 @@ export interface OpEvent {
   /** Explication lisible d'un échec : ce qui s'est passé et quoi faire. */
   reason?: string;
   retry?: { appId: AppId; type: 'backup' };
+  /** Titre explicite (opérations réelles hors applications). */
+  title?: string;
+  /** Lien Drive du fichier concerné, quand il existe. */
+  link?: string;
   /** Un échec reste « ouvert » jusqu'à une réussite ultérieure de la même opération. */
   resolved?: boolean;
 }

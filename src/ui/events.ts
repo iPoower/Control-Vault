@@ -7,6 +7,9 @@ const TYPE_LABEL: Record<OpEvent['type'], string> = {
   safety: 'Copie de sécurité',
   import: 'Import JSON',
   verify: 'Contrôle d’intégrité',
+  connect: 'Connexion à Google Drive',
+  grant: 'Autorisation de fichiers',
+  'test-upload': 'Envoi de test',
 };
 
 export const TYPE_ICON: Record<OpEvent['type'], string> = {
@@ -15,6 +18,9 @@ export const TYPE_ICON: Record<OpEvent['type'], string> = {
   safety: 'shield',
   import: 'upload',
   verify: 'fingerprint',
+  connect: 'cloud',
+  grant: 'key',
+  'test-upload': 'upload',
 };
 
 export function sourceName(e: OpEvent, s: State) {
@@ -22,7 +28,7 @@ export function sourceName(e: OpEvent, s: State) {
 }
 
 export function eventTitle(e: OpEvent, s: State) {
-  if (e.source === 'vault') return e.type === 'verify' ? 'Contrôle d’intégrité de toutes les versions' : TYPE_LABEL[e.type];
+  if (e.source === 'vault') return e.type === 'verify' ? 'Contrôle d’intégrité de toutes les versions' : e.title ?? TYPE_LABEL[e.type];
   const prep = e.type === 'import' ? ' pour ' : ' de ';
   return `${TYPE_LABEL[e.type]}${prep}${s.apps[e.source].name}`;
 }

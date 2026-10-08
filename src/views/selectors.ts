@@ -1,5 +1,7 @@
 import { lastVerified } from '../app';
+import { computeDriveStatus } from '../core/drive-status';
 import { computeGlobalStatus, type IntentKind } from '../core/status';
+import { connectGoogle, openGrant } from './drive-actions';
 import type { State } from '../core/store';
 import type { AppId } from '../core/types';
 import { openBackup } from '../flows/sheets';
@@ -7,6 +9,7 @@ import { reconnectGoogle, store } from '../app';
 import { toast } from '../ui/overlay';
 
 export function globalStatus(s: State) {
+  if (s.mode === 'drive') return computeDriveStatus(s.drive, s.connectivity.online, Date.now());
   return computeGlobalStatus({
     now: Date.now(),
     connectivity: s.connectivity,
@@ -24,6 +27,7 @@ export function globalStatus(s: State) {
 export async function runIntent(intent: IntentKind, navigate: (h: string) => void) {
   switch (intent.kind) {
     case 'reconnect':
+      if (store.get().mode === 'drive') return connectGoogle();
       await reconnectGoogle();
       toast('Connexion Google rétablie', { kind: 'ok' });
       break;
@@ -36,6 +40,9 @@ export async function runIntent(intent: IntentKind, navigate: (h: string) => voi
       if (first) openBackup(first.appId);
       break;
     }
+    case 'grant':
+      openGrant();
+      break;
     case 'open-security':
       navigate('#/securite');
       break;

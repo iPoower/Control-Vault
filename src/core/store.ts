@@ -1,9 +1,38 @@
 // Magasin d'état unique, minimal et synchrone. Les vues s'abonnent ; rien n'est caché.
 
+import type { AuthState } from '../services/google-auth';
+import type { Mode } from './mode';
 import type { AppId, AppRecord, Connectivity, DriveItem, OpEvent, PendingOp, Quota, Scenario, Settings, Version } from './types';
+
+/** Accès d'un dossier ou fichier autorisé, vérifié auprès de Drive. */
+export interface RootAccess {
+  id: string;
+  name: string;
+  key?: string;
+  source: 'config' | 'picker';
+  kind: 'folder' | 'file';
+  access: 'unknown' | 'checking' | 'granted' | 'missing' | 'error';
+  canAddChildren?: boolean;
+  /** Nombre d'éléments visibles à l'intérieur lors du dernier contrôle (dossiers seulement). */
+  visibleChildren?: number;
+}
+
+export interface DriveState {
+  auth: AuthState;
+  message?: string;
+  scopes: string[];
+  expiresAt?: number;
+  account?: { name?: string; email?: string };
+  /** Dernière réponse réussie de l'API Google : seule preuve d'une connexion fonctionnelle. */
+  lastCheckAt?: number;
+  roots: RootAccess[];
+}
 
 export interface State {
   ready: boolean;
+  /** Fixé au démarrage. Démonstration et Google Drive ne partagent aucune donnée. */
+  mode: Mode;
+  drive: DriveState;
   scenario: Scenario;
   connectivity: Connectivity;
   quota?: Quota;

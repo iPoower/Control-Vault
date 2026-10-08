@@ -7,7 +7,18 @@ import type { DriveItem, Quota } from '../core/types';
 
 export class ServiceError extends Error {
   constructor(
-    public code: 'offline' | 'auth-expired' | 'interrupted' | 'not-found' | 'quota' | 'unavailable',
+    public code:
+      | 'offline'
+      | 'auth-expired'
+      | 'interrupted'
+      | 'not-found'
+      | 'quota'
+      | 'unavailable'
+      | 'forbidden'
+      | 'rate-limited'
+      | 'network'
+      | 'timeout'
+      | 'bad-response',
     message: string,
   ) {
     super(message);
