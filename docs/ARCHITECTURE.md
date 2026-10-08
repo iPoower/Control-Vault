@@ -87,8 +87,8 @@ Fonction pure, testée. Niveaux : `ok`, `attention`, `action`, `unknown`.
 
 | Phase | Contenu | Points d'attention |
 |---|---|---|
-| 2 | Google Identity Services (jeton en mémoire), Drive API v3, Google Picker pour autoriser les 4 dossiers existants | `drive.file` ne voit pas les dossiers créés hors de l'app : le Picker est obligatoire |
-| 3 | Phrase secrète → PBKDF2 (600 000 itérations), phrase de récupération, imports, restaurations réelles | Perte de la phrase = sauvegardes illisibles, par conception |
+| 2 | Google Identity Services (jeton en mémoire), Drive API v3, Google Picker : l'utilisateur choisit lui-même ses dossiers (aucun identifiant dans le code) | `drive.file` ne voit pas les fichiers créés hors de l'app : le Picker est obligatoire |
+| 3 | Phrase secrète → Argon2id (étude : [CRYPTO.md](CRYPTO.md)), clé de récupération, imports, restaurations réelles | Perte de la phrase = sauvegardes illisibles, par conception |
 | 4 | Tables `vault_versions`, `vault_events` dans `reconversion-control`, RLS `owner = auth.uid()` | Ne jamais toucher `reconversion_progress` ; projet Free mis en pause après 7 jours d'inactivité |
 | 5 | Contrats d'intégration Race Control / Reconversion Control (export JSON signé, import manuel) | Le journal des trajets ne doit jamais être perdu |
 | 6 | Durcissement, mesures de performance, déploiement final | — |
@@ -97,9 +97,10 @@ Fonction pure, testée. Niveaux : `ok`, `attention`, `action`, `unknown`.
 
 | Risque | Impact | Parade |
 |---|---|---|
-| **Origine partagée** : `ipoower.github.io` héberge aussi Race Control ; stockage local commun | Une page compromise lirait les données de l'autre | Avant la Phase 2 : adresse dédiée (Cloudflare Pages gratuit) ; jetons jamais en `localStorage` |
+| **Origine partagée** : `ipoower.github.io` héberge aussi Race Control ; stockage local commun | Une page compromise lirait les données de l'autre | Cloudflare Pages dédié, publié uniquement par le pipeline ([DEPLOYMENT.md](DEPLOYMENT.md)) ; GitHub Pages reste en démonstration |
+| Publication d'un commit non vérifié | Code non testé en production | Pipeline unique : `needs: verify`, artefact du même run, SHA contrôlé en ligne, environnement `production` approuvé |
 | Pause Supabase Free (7 jours sans activité) | Journal distant indisponible | Drive reste la vérité ; l'interface le signale sans bloquer |
 | Quota 5 To lié à une offre étudiante | Envois refusés si le quota retombe à 15 Go | Quota lu depuis l'API, jamais codé en dur ; alerte au-delà de 80 % |
 | Safari efface le stockage d'un site non installé après 7 jours sans visite | Perte des réglages locaux | Rien de critique n'est stocké localement ; installation PWA recommandée |
-| GitHub Pages ne permet pas d'en-têtes HTTP | Pas de `frame-ancestors` | CSP en `<meta>` ; hébergement dédié corrigera |
+| GitHub Pages ne permet pas d'en-têtes HTTP | Pas de `frame-ancestors` | Démonstration seulement ; la production Cloudflare envoie CSP, `X-Frame-Options`, HSTS via `_headers` |
 | Phrase secrète oubliée | Sauvegardes illisibles | Phrase de récupération papier, test de restauration guidé |

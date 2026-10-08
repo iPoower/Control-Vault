@@ -2,7 +2,6 @@ import { exportJournal, setScenario, store } from '../app';
 import { formatBytes } from '../core/format';
 import type { State } from '../core/store';
 import type { AppId, Scenario, Settings } from '../core/types';
-import { DRIVE_FOLDERS } from '../config';
 import { download, h, replace } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { toast } from '../ui/overlay';
@@ -74,7 +73,7 @@ export function settingsView(ctx: ViewContext): View {
       group(
         'stockage',
         'Stockage',
-        setRow('Dossier du coffre', 'Control Vault, avec Race Control, Reconversion Control et Archives. Les dossiers existants ne sont jamais recréés ni déplacés.', h('a', { class: 'btn btn-sm', href: DRIVE_FOLDERS.root, target: '_blank', rel: 'noopener noreferrer' }, 'Ouvrir dans Drive')),
+        setRow('Dossiers du coffre', 'En mode connecté, tu choisiras toi-même chaque dossier dans le sélecteur Google. Aucun dossier n’est enregistré dans le code, et les dossiers existants ne sont jamais recréés ni déplacés.', null),
         setRow('Espace', q ? `${formatBytes(q.usedBytes)} utilisés sur ${formatBytes(q.totalBytes, 0)}. ${q.planNote}.` : 'Non vérifié', null),
       ),
 

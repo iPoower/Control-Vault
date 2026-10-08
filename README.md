@@ -32,13 +32,15 @@ npm run check        # tout, dans l'ordre
 
 ## Gouvernance
 
-Branche → PR → CI (types, unitaires, build, scan de secrets, parcours Chromium + WebKit, axe WCAG 2.2 AA, captures) → revue → fusion → déploiement Pages → vérification HTTP. Rien ne se fait directement sur `main`.
+Branche → PR → « Vérification complète » (audit, types, unitaires, build, contrôle de sécurité, parcours Chromium + WebKit, WCAG 2.2 AA) → revue → fusion → publication de l'artefact vérifié → contrôle du commit servi. Rien ne se fait directement sur `main`. Les changements sensibles exigent une revue humaine : voir [SECURITY.md](SECURITY.md) et [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## Documentation
 
 - [Architecture et analyse adverse](docs/ARCHITECTURE.md)
 - [Design system](docs/DESIGN.md)
 - [Politique de sécurité](SECURITY.md)
+- [Publication et protections](docs/DEPLOYMENT.md)
+- [Gouvernance du chiffrement](docs/CRYPTO.md)
 
 ## Feuille de route
 

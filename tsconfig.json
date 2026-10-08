@@ -10,7 +10,9 @@
     "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true,
     "isolatedModules": true,
-    "types": ["vite/client"]
+    "types": ["vite/client", "node"],
+    "allowImportingTsExtensions": true,
+    "noEmit": true
   },
-  "include": ["src", "tests/unit"]
+  "include": ["src", "tests/unit", "scripts/security-check.ts"]
 }

@@ -142,6 +142,7 @@ function render() {
   topTitle.textContent = view.title;
   document.title = route.key === 'home' ? 'Control Vault' : `${view.title} — Control Vault`;
   paintNav(store.get());
+  paintBanners(store.get());
   if (!isFirst) {
     viewEl.focus({ preventScroll: true });
     announce(view.title);
@@ -197,9 +198,8 @@ function paintBanners(s: State) {
   if (s.scenario !== 'normal' && c.online) {
     items.push(h('div', { class: 'banner banner-demo' }, icon('info'), h('p', null, 'Situation simulée active.'), h('button', { class: 'btn btn-sm', type: 'button', onclick: () => setScenario('normal') }, 'Revenir à la normale')));
   }
-  if (!items.length && current?.nav === 'home') {
-    items.push(h('div', { class: 'banner banner-demo' }, icon('info'), h('p', null, 'Démonstration : données fictives, aucune connexion à Google ni à Supabase.')));
-  }
+  // Mode démonstration : signalé sur tous les écrans, sans exception.
+  items.push(h('div', { class: 'banner banner-demo' }, icon('info'), h('p', null, 'Démonstration : données fictives, aucune connexion à Google ni à Supabase.')));
   replace(banners, ...items);
 }
 
