@@ -1,20 +1,33 @@
 # Politique de sécurité — Control Vault
 
+**Données privées. Code public. Opérations vérifiées.**
+
 ## Engagements
 
-- **Aucun secret dans ce dépôt.** Il est public et servi par GitHub Pages. L'identifiant client OAuth Google (Phase 2) et la clé `anon` Supabase (Phase 4) sont publics par nature et limités par les origines autorisées et la RLS. Aucun jeton, mot de passe ou clé privée n'y figurera jamais.
-- **Chiffrement côté appareil** (AES-256-GCM) avant tout envoi. La clé est dérivée d'une phrase secrète (PBKDF2-SHA-256, 600 000 itérations) et n'est jamais transmise ni stockée.
-- **Permissions Google minimales** : `drive.file` uniquement. Les dossiers existants sont autorisés explicitement via le sélecteur Google.
-- **Jetons en mémoire uniquement**, jamais dans `localStorage`, `sessionStorage` ou IndexedDB.
-- **Intégrité SHA-256** vérifiée après chaque envoi et avant chaque restauration.
-- **Aucune écriture silencieuse** : pas d'écrasement, pas de suppression automatique, copie de sécurité avant toute restauration.
-- **CSP stricte** (`default-src 'self'`, aucun script ni style externe). Les domaines Google et Supabase ne seront ajoutés qu'avec les phases qui les utilisent.
-- **Isolation Supabase** : tables `vault_*` dédiées, RLS `owner = auth.uid()`. La table `reconversion_progress` n'est ni lue ni modifiée.
+- **Aucun secret ni identifiant personnel dans ce dépôt public.** Pas de jeton, de mot de passe, de clé privée, de secret OAuth, ni d'identifiant de dossier Google Drive. Un contrôle automatique (`scripts/security-check.ts`) bloque la publication si l'un d'eux apparaît dans le code, la documentation, les workflows ou le build.
+- **Dossiers Drive choisis par l'utilisateur.** En mode connecté, chaque dossier ou fichier est sélectionné explicitement dans le sélecteur Google. Aucun dossier n'est codé en dur.
+- **Permissions Google minimales** : `drive.file` uniquement. Jamais `drive` ni `drive.readonly`.
+- **Jetons Google en mémoire uniquement.** Jamais dans `localStorage`, IndexedDB, l'URL, les journaux ou GitHub. Aucun jeton de rafraîchissement côté navigateur.
+- **Chiffrement côté appareil** avant tout envoi. Aucune sauvegarde réelle et durable avant la validation de la Phase 3 (voir [docs/CRYPTO.md](docs/CRYPTO.md)).
+- **Aucune écriture silencieuse** : pas d'écrasement, pas de suppression automatique.
+- **Hébergement isolé** : la version connectée sera servie depuis une origine Cloudflare dédiée, avec en-têtes de sécurité. `ipoower.github.io` reste une démonstration sans accès Google.
+- **Publication contrôlée** : seul l'artefact vérifié d'un commit de `main` peut être publié (voir [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)).
 
-## Point ouvert avant la Phase 2
+## Politique de fusion
 
-`ipoower.github.io` est partagé avec d'autres pages GitHub (dont Race Control) : même origine, donc même stockage local. Avant toute connexion réelle à Google, Control Vault doit être servi depuis une origine dédiée (par exemple Cloudflare Pages, gratuit). L'écran Sécurité le signale tant que ce n'est pas fait.
+| Type de changement | Fusion |
+|---|---|
+| Correctifs et évolutions non sensibles (interface, textes, tests, documentation hors sécurité) | Automatique, une fois **tous** les contrôles verts |
+| **Sensible** : chiffrement et clés, OAuth et permissions Google, CSP et en-têtes, workflows et publication, contrôle de sécurité, configuration publique (`src/config.ts`), politique de sécurité | **Revue humaine explicite obligatoire.** Une CI verte ne la remplace pas. La PR est préparée et testée, puis c'est **toi** qui fusionnes |
+
+Les chemins sensibles sont listés dans [.github/CODEOWNERS](.github/CODEOWNERS).
+
+## Historique Git
+
+Les identifiants de dossiers Drive présents en Phase 1 ont été retirés du code. **Ils restent visibles dans l'historique public** (commit `0a0ee13` et antérieurs). Les effacer exigerait de réécrire l'historique par un force-push, ce que la protection de `main` interdit.
+
+Un identifiant de dossier ne donne aucun accès à lui seul. Vérifie simplement que ces dossiers sont en partage **« Restreint »** dans Google Drive.
 
 ## Signaler un problème
 
-Ouvre une issue privée (Security advisory) sur ce dépôt.
+Ouvre un avis de sécurité privé (*Security › Report a vulnerability*) sur ce dépôt.

@@ -1,0 +1,184 @@
+# Pipeline unique : on publie EXACTEMENT ce qui vient d'être vérifié, et rien d'autre.
+#
+#   pull_request ──► Vérification complète ──► Porte de publication (preuve, ne publie rien)
+#   push main    ──► Vérification complète ──► GitHub Pages (démonstration)
+#                                          └─► Cloudflare Pages (production isolée, environnement protégé)
+#
+# Garanties :
+#  - les jobs de publication dépendent (needs) de « Vérification complète » : si elle échoue,
+#    ils sont ignorés ;
+#  - ils publient l'artefact construit et testé dans CE run (même commit), jamais un nouveau build ;
+#  - aucun déclenchement manuel (pas de workflow_dispatch) ;
+#  - publication uniquement depuis un push sur main ;
+#  - Cloudflare : projet en « Direct Upload » (aucune construction parallèle par Cloudflare),
+#    jeton stocké dans l'environnement GitHub « production », réservé à main et soumis à approbation.
+#
+# Toute modification de ce fichier est une modification de sécurité : revue humaine obligatoire.
+
+name: Pipeline
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pipeline-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  verify:
+    name: Vérification complète
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BUILD_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Installation (verrouillée)
+        run: npm ci
+      - name: Audit des dépendances de production
+        run: npm audit --omit=dev --audit-level=high
+      - name: TypeScript
+        run: npm run typecheck
+      - name: Tests unitaires
+        run: npm test
+      - name: Build
+        run: npm run build
+      - name: Contrôle de sécurité (secrets, source maps, identifiants, CSP, en-têtes)
+        run: node scripts/security-check.ts dist
+      - name: Navigateurs Playwright
+        run: npx playwright install --with-deps chromium webkit
+      - name: Parcours, sécurité et accessibilité (Chromium + WebKit)
+        run: npm run test:e2e
+        env:
+          CI: '1'
+      - name: Captures d'écran des parcours (données fictives uniquement)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: captures-parcours
+          path: screenshots/
+          retention-days: 30
+      - name: Rapport Playwright
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rapport-playwright
+          path: playwright-report/
+          retention-days: 14
+      # L'artefact publié est celui-ci : construit puis testé ci-dessus, pour ce commit.
+      - name: Artefact vérifié (Cloudflare)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-verifie-${{ github.sha }}
+          path: dist/
+          include-hidden-files: true
+          retention-days: 7
+      - name: Artefact vérifié (GitHub Pages)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/
+
+  gate:
+    name: Porte de publication
+    needs: verify
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Preuve
+        run: |
+          echo "Vérification complète réussie pour ${{ github.event.pull_request.head.sha }}."
+          echo "Ce job n'existe que si la vérification a réussi : une vérification échouée le laisse « skipped »."
+
+  deploy-pages:
+    name: Publication GitHub Pages (démonstration)
+    needs: verify
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: production-pages
+      cancel-in-progress: false
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+      - name: Le site sert bien ce commit
+        run: |
+          url="${{ steps.deployment.outputs.page_url }}"
+          for i in 1 2 3 4 5 6; do
+            served=$(curl -fsS "${url}version.json" | sed -E 's/.*"sha":"([0-9a-f]+)".*/\1/' || true)
+            [ "$served" = "${{ github.sha }}" ] && echo "Commit servi : $served" && exit 0
+            sleep 10
+          done
+          echo "Le site ne sert pas ${{ github.sha }} (reçu : ${served:-rien})." && exit 1
+
+  deploy-cloudflare:
+    name: Publication Cloudflare Pages (production isolée)
+    needs: verify
+    # Inactif tant que le projet Cloudflare n'est pas déclaré (variable de dépôt CLOUDFLARE_PROJECT).
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.CLOUDFLARE_PROJECT != ''
+    runs-on: ubuntu-latest
+    # Environnement protégé : branche main uniquement + approbation humaine (voir docs/DEPLOYMENT.md).
+    environment:
+      name: production
+      url: https://${{ vars.CLOUDFLARE_PROJECT }}.pages.dev
+    concurrency:
+      group: production-cloudflare
+      cancel-in-progress: false
+    steps:
+      - name: Récupération de l'artefact vérifié de ce run
+        uses: actions/download-artifact@v4
+        with:
+          name: site-verifie-${{ github.sha }}
+          path: dist
+      - name: L'artefact correspond au commit
+        run: grep -q "\"sha\":\"${{ github.sha }}\"" dist/version.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Projet Cloudflare en envoi direct (créé une seule fois, sans connexion Git)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if npx --yes wrangler@4.137.0 pages project list 2>/dev/null | grep -qw "${{ vars.CLOUDFLARE_PROJECT }}"; then
+            echo "Projet existant."
+          else
+            npx --yes wrangler@4.137.0 pages project create "${{ vars.CLOUDFLARE_PROJECT }}" --production-branch main
+          fi
+      - name: Envoi direct vers Cloudflare Pages
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx --yes wrangler@4.137.0 pages deploy dist --project-name "${{ vars.CLOUDFLARE_PROJECT }}" --branch main --commit-hash "${{ github.sha }}" --commit-dirty=false
+      - name: Production servie, commit exact, en-têtes de sécurité
+        run: |
+          url="https://${{ vars.CLOUDFLARE_PROJECT }}.pages.dev"
+          for i in 1 2 3 4 5 6; do
+            served=$(curl -fsS "$url/version.json" | sed -E 's/.*"sha":"([0-9a-f]+)".*/\1/' || true)
+            [ "$served" = "${{ github.sha }}" ] && break
+            sleep 10
+          done
+          [ "$served" = "${{ github.sha }}" ] || { echo "Production ne sert pas ${{ github.sha }}"; exit 1; }
+          headers=$(curl -fsSI "$url/")
+          for h in "content-security-policy: .*frame-ancestors 'none'" "x-frame-options: DENY" "x-content-type-options: nosniff" "referrer-policy: strict-origin-when-cross-origin" "strict-transport-security:"; do
+            echo "$headers" | grep -qi "$h" || { echo "En-tête manquant : $h"; exit 1; }
+          done
+          echo "Production vérifiée : $served, en-têtes de sécurité présents."

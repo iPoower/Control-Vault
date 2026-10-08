@@ -1,0 +1,13 @@
+# Chemins sensibles : toute modification exige une revue humaine explicite avant fusion
+# (voir SECURITY.md). Une CI verte ne suffit pas.
+
+/.github/                         @iPoower
+/scripts/security-check.ts        @iPoower
+/public/_headers                  @iPoower
+/index.html                       @iPoower
+/src/config.ts                    @iPoower
+/src/core/crypto.ts               @iPoower
+/src/services/                    @iPoower
+/SECURITY.md                      @iPoower
+/docs/CRYPTO.md                   @iPoower
+/docs/DEPLOYMENT.md               @iPoower

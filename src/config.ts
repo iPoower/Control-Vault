@@ -1,17 +1,10 @@
-// Configuration publique. AUCUN secret ici : ce fichier est servi tel quel par GitHub Pages.
-// Les identifiants de dossiers Drive ne donnent aucun accès sans autorisation OAuth.
+// Configuration publique. Ce dépôt est public : AUCUN secret ni identifiant personnel ici.
+//
+// - Aucun identifiant de dossier Google Drive : en mode réel (Phase 2), les dossiers sont
+//   choisis explicitement par l'utilisateur dans le sélecteur Google (Google Picker).
+// - Les identifiants publics de la connexion Google (client OAuth, clé API restreinte,
+//   numéro de projet) seront fournis au build de production par des variables
+//   d'environnement protégées, jamais par ce fichier.
 
-export const DRIVE_FOLDERS = {
-  root: 'https://drive.google.com/drive/folders/1IPLb2Ild4L6gzoNu6qwgIGyH82qb0LV3',
-  raceControl: 'https://drive.google.com/drive/folders/1Qii0gqhLU6dv8y-LMAOFnl_Rup1ABXyG',
-  reconversionControl: 'https://drive.google.com/drive/folders/1xh0vomhbyUIsIKkrkLO8n3kyc_FNe3Li',
-  archives: 'https://drive.google.com/drive/folders/1hjAgdsRaEfZbzmsJ2UVV9dvNvIAFMF4T',
-} as const;
-
-/** Phase 2 : identifiant client OAuth (public par nature, restreint aux origines autorisées). */
-export const GOOGLE_CLIENT_ID = '';
-/** Phase 2 : scopes minimaux. drive.file = uniquement les fichiers créés ou ouverts via le Picker. */
-export const GOOGLE_SCOPES = ['https://www.googleapis.com/auth/drive.file'];
-
-/** Phase 4 : projet Supabase existant, tables vault_* isolées. La clé anon sera ajoutée en Phase 4. */
-export const SUPABASE = { projectRef: 'zjydqnkyqshpnteabpat', region: 'eu-west-3 (Paris)' } as const;
+/** Seul scope Google qui sera demandé. drive.file = fichiers créés par l'app ou choisis via le sélecteur. */
+export const GOOGLE_SCOPES = ['https://www.googleapis.com/auth/drive.file'] as const;
