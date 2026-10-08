@@ -1,0 +1,127 @@
+/* Control Vault — design tokens.
+   Encre d'ardoise + laiton : le laiton est réservé à la marque et à l'action principale ;
+   les couleurs d'état (vert, ambre, rouge, bleu, gris) ne servent qu'à des états système réels. */
+
+
+:root {
+  /* Typographie */
+  --font: 'Instrument Sans Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --fs-cap: 0.78125rem;  /* 12.5 */
+  --fs-sm: 0.875rem;     /* 14 */
+  --fs-body: 1rem;       /* 16 */
+  --fs-h3: 1.1875rem;    /* 19 */
+  --fs-h2: 1.5rem;       /* 24 */
+  --fs-h1: 2.125rem;     /* 34 */
+  --lh-tight: 1.15;
+  --lh: 1.45;
+
+  /* Espacements (base 4) */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 24px; --s8: 32px; --s10: 40px; --s12: 48px;
+
+  /* Rayons hiérarchisés : plus l'objet est grand, plus le rayon l'est */
+  --r-xs: 6px;   /* puces, champs */
+  --r-sm: 10px;  /* boutons, lignes */
+  --r-md: 14px;  /* panneaux */
+  --r-lg: 22px;  /* feuilles modales */
+
+  --tap: 44px;
+  --sidebar: 248px;
+  --tabbar: 58px;
+  --ease: cubic-bezier(.2, .7, .2, 1);
+  --t-fast: 120ms;
+  --t: 200ms;
+  --t-slow: 320ms;
+
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+
+  color-scheme: dark;
+}
+
+/* Sombre (par défaut) */
+:root,
+:root[data-theme='dark'] {
+  --bg: #121920;
+  --bg-elev: #161F27;
+  --surface: #1B252F;
+  --surface-2: #22303C;
+  --surface-3: #2A3946;
+  --line: #2A3845;
+  --line-strong: #3B4D5D;
+  --text: #E8EEF3;
+  --text-2: #A7B4C0;
+  --text-3: #8D9DAC;
+  --brass: #CFB074;
+  --brass-ink: #1D1912;
+  --brass-soft: color-mix(in srgb, var(--brass) 16%, transparent);
+  --ok: #5DC4A2;
+  --warn: #E5B05A;
+  --bad: #EE786C;
+  --info: #7DB1E3;
+  --idle: #93A2B0;
+  --focus: #9CC8F0;
+  --scrim: rgb(5 9 13 / 0.62);
+  --shadow-sheet: 0 -1px 0 var(--line), 0 24px 60px rgb(0 0 0 / 0.45);
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  --bg: #EDF0F3;
+  --bg-elev: #F5F7F9;
+  --surface: #FFFFFF;
+  --surface-2: #F3F6F8;
+  --surface-3: #E7ECF0;
+  --line: #DAE1E7;
+  --line-strong: #BFCAD4;
+  --text: #13202B;
+  --text-2: #4A5966;
+  --text-3: #56646F;
+  --brass: #8C6922;
+  --brass-ink: #FFFFFF;
+  --brass-soft: color-mix(in srgb, var(--brass) 12%, transparent);
+  --ok: #106A49;
+  --warn: #7E5108;
+  --bad: #A8302A;
+  --info: #225C93;
+  --idle: #505F6B;
+  --focus: #225C93;
+  --scrim: rgb(19 32 43 / 0.38);
+  --shadow-sheet: 0 -1px 0 var(--line), 0 24px 60px rgb(19 32 43 / 0.18);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --bg: #EDF0F3;
+    --bg-elev: #F5F7F9;
+    --surface: #FFFFFF;
+    --surface-2: #F3F6F8;
+    --surface-3: #E7ECF0;
+    --line: #DAE1E7;
+    --line-strong: #BFCAD4;
+    --text: #13202B;
+    --text-2: #4A5966;
+    --text-3: #56646F;
+    --brass: #8C6922;
+    --brass-ink: #FFFFFF;
+    --brass-soft: color-mix(in srgb, var(--brass) 12%, transparent);
+    --ok: #106A49;
+    --warn: #7E5108;
+    --bad: #A8302A;
+    --info: #225C93;
+    --idle: #505F6B;
+    --focus: #225C93;
+    --scrim: rgb(19 32 43 / 0.38);
+    --shadow-sheet: 0 -1px 0 var(--line), 0 24px 60px rgb(19 32 43 / 0.18);
+    color-scheme: light;
+  }
+}
+
+/* Couleur d'état → variable unique, utilisée par les pastilles, arcs et icônes */
+[data-health='verified'] { --hc: var(--ok); }
+[data-health='stale'] { --hc: var(--warn); }
+[data-health='pending'] { --hc: var(--info); }
+[data-health='failed'] { --hc: var(--bad); }
+[data-health='unknown'] { --hc: var(--idle); }
