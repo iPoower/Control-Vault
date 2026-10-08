@@ -33,7 +33,8 @@ export async function go(page: Page, label: string, testInfo: TestInfo) {
 
 export async function shot(page: Page, testInfo: TestInfo, name: string) {
   await page.waitForTimeout(350); // fin des transitions
-  await page.screenshot({ path: `screenshots/${testInfo.project.name}/${name}.png`, fullPage: false });
+  // caret: 'initial' : sinon Playwright injecte une feuille de style que la CSP stricte refuse (WebKit le signale).
+  await page.screenshot({ path: `screenshots/${testInfo.project.name}/${name}.png`, fullPage: false, caret: 'initial' });
 }
 
 export async function scenario(page: Page, testInfo: TestInfo, label: string) {
