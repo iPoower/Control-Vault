@@ -12,8 +12,8 @@ export default defineConfig({
   reporter: ci ? [['github'], ['list'], ['html', { open: 'never' }]] : 'list',
   workers: ci ? 3 : undefined,
   outputDir: 'test-results',
-  use: { baseURL: 'http://localhost:4173/', trace: 'retain-on-failure' },
-  webServer: { command: 'npm run preview', port: 4173, reuseExistingServer: !ci },
+  use: { baseURL: 'http://127.0.0.1:4173/', trace: 'retain-on-failure' },
+  webServer: { command: 'npm run preview', url: 'http://127.0.0.1:4173/', reuseExistingServer: !ci },
   projects: [
     { name: 'chromium-desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } } },
     { name: 'chromium-iphone', use: { ...devices['Desktop Chrome'], viewport: { width: 414, height: 896 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true } },

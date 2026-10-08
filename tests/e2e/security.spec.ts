@@ -4,13 +4,13 @@ import { open } from './helpers';
 
 test.describe('Sécurité', () => {
   test('Isolation : deux origines distinctes ne partagent pas le stockage local', async ({ browser }) => {
-    // localhost et 127.0.0.1 sont deux origines différentes, comme ipoower.github.io et un sous-domaine
-    // Cloudflare dédié. Ce que l'une écrit, l'autre ne le voit pas.
+    // 127.0.0.1 et 127.0.0.2 sont deux origines différentes, comme ipoower.github.io et un
+    // sous-domaine Cloudflare dédié. Ce que l'une écrit, l'autre ne le voit pas.
     const ctx = await browser.newContext();
     const a = await ctx.newPage();
     const b = await ctx.newPage();
-    await a.goto('http://localhost:4173/');
-    await b.goto('http://127.0.0.1:4173/');
+    await a.goto('http://127.0.0.1:4173/');
+    await b.goto('http://127.0.0.2:4173/');
     await a.evaluate(() => localStorage.setItem('isolation-test', 'origine-A'));
     expect(await a.evaluate(() => localStorage.getItem('isolation-test'))).toBe('origine-A');
     expect(await b.evaluate(() => localStorage.getItem('isolation-test'))).toBeNull();
@@ -45,7 +45,7 @@ test.describe('Sécurité', () => {
       expect(await page.content()).not.toMatch(/drive\.google\.com\/drive\/(?:u\/\d+\/)?folders\//);
     }
     // Aucune requête ne quitte l'origine : pas de Google, pas de Supabase, pas de police externe.
-    const external = requests.filter((u) => !u.startsWith('http://localhost:4173/') && !u.startsWith('data:') && !u.startsWith('blob:'));
+    const external = requests.filter((u) => !u.startsWith('http://127.0.0.1:4173/') && !u.startsWith('data:') && !u.startsWith('blob:'));
     expect(external).toEqual([]);
   });
 
