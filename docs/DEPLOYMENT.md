@@ -15,12 +15,21 @@ push main ──► Vérification complète ──┬─► GitHub Pages     (d�
 
 | Garantie | Comment |
 |---|---|
-| Une vérification échouée bloque la publication | Les deux publications ont `needs: verify` : si `Vérification complète` échoue, elles sont ignorées |
+| Une vérification échouée bloque la publication | Les deux publications ont `needs: verify` sans condition de contournement : si `Vérification complète` échoue, elles sont ignorées. `tests/unit/pipeline.test.ts` fait échouer la CI si une modification ajoute `always()`, retire `needs`, reconstruit dans un job de publication ou ajoute un déclenchement manuel |
 | On publie le commit vérifié, rien d'autre | Les publications reprennent l'artefact `dist/` construit et testé dans le même run, sans reconstruire. `version.json` porte le SHA, et le pipeline vérifie en ligne que le site sert ce SHA |
 | Pas de contournement manuel | Aucun `workflow_dispatch`. Publication uniquement sur `push` vers `main` |
 | Pas de publication parallèle Cloudflare | Projet Cloudflare en **envoi direct** : il n'est relié à aucun dépôt Git et ne construit rien lui-même. Seul le pipeline peut publier, avec un jeton |
 | Le jeton Cloudflare n'est accessible qu'à `main`, après approbation | Il est stocké dans l'environnement GitHub `production`, limité à `main`, avec toi comme relecteur obligatoire |
 | Pas de prévisualisation publique des PR | Choix délibéré : une prévisualisation exigerait de confier le jeton à du code non fusionné. Les PR produisent des captures et un rapport en artefacts |
+
+## Ce qui est prouvé, et ce qui ne l'est pas encore
+
+| Affirmation | Preuve |
+|---|---|
+| Une vérification rouge ferme la porte | Constaté sur une PR (run 37783161025) : vérification en échec, porte et publications ignorées. Sur une PR, les publications sont de toute façon désactivées : ce run prouve la fermeture de la porte, **pas** à lui seul un blocage sur `main` |
+| Sur `main`, une vérification rouge bloque la publication | Garanti par la structure (`needs: verify`) et par les tests d'invariants. **Non démontré en réel** : on ne provoque pas volontairement une panne de `main` |
+| La production sert le commit vérifié | Contrôlé à chaque publication (`version.json` = SHA). Première preuve réelle : au premier push sur `main` après fusion |
+| Isolation et en-têtes Cloudflare | **Non testés en production** tant que le projet Cloudflare n'existe pas |
 
 ## Contrôles de « Vérification complète »
 
@@ -49,9 +58,15 @@ push main ──► Vérification complète ──┬─► GitHub Pages     (d�
 | Require a pull request before merging | ✅, approbations requises : **0** (voir la note ci-dessous), « Require conversation resolution » ✅ |
 | Require status checks to pass | ✅, « Require branches to be up to date before merging » ✅, contrôle : **`Vérification complète`** |
 
-> **Pourquoi 0 approbation.** Les PR sont créées avec ton compte, et GitHub interdit d'approuver sa propre PR : exiger une approbation te bloquerait. La revue humaine des changements sensibles passe donc par deux verrous réels :
-> 1. **Fusion** : je ne fusionne jamais une PR sensible (voir `SECURITY.md`). C'est toi qui cliques sur « Merge ».
-> 2. **Production** : chaque publication Cloudflare attend ton approbation dans l'environnement `production`.
+> **Pourquoi 0 approbation, et ce que cela implique.** Les PR sont créées avec ton compte, et GitHub interdit d'approuver sa propre PR : exiger une approbation te bloquerait. `CODEOWNERS` te désigne toi-même : il signale les chemins sensibles mais **n'impose pas de revue indépendante**.
+>
+> | Garde-fou | Nature |
+> |---|---|
+> | Je ne fusionne jamais une PR sensible ; tu fusionnes toi-même après relecture | **Règle de process**, pas un verrou GitHub |
+> | Contrôle `Vérification complète` requis avant fusion | **Verrou GitHub** (après activation du ruleset) |
+> | Approbation de chaque publication Cloudflare dans l'environnement `production` | **Verrou GitHub** (après création de l'environnement) |
+>
+> Une revue réellement indépendante, imposée par GitHub, exigerait un second compte relecteur.
 
 Une fois le ruleset enregistré, dis-le-moi : je relis la configuration réelle avec l'API (lecture autorisée) et je te confirme ce qui est actif.
 
