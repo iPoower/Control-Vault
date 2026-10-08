@@ -273,7 +273,17 @@ boot()
   })
   .catch((e) => {
     console.error(e);
-    replace(viewEl, h('div', { class: 'empty' }, h('h1', null, 'Ouverture impossible'), h('p', null, 'Ce navigateur ne fournit pas les fonctions de chiffrement nécessaires (Web Crypto). Ouvre Control Vault dans Safari ou un navigateur récent, en HTTPS.')));
+    const crypto = !!globalThis.crypto?.subtle;
+    replace(
+      viewEl,
+      h(
+        'div',
+        { class: 'empty', role: 'alert' },
+        h('h1', null, 'Ouverture impossible'),
+        h('p', null, crypto ? 'Le coffre n’a pas pu démarrer. Recharge la page ; si le problème persiste, le détail ci-dessous aide au diagnostic.' : 'Ce navigateur ne fournit pas les fonctions de chiffrement nécessaires (Web Crypto). Ouvre Control Vault dans Safari ou un navigateur récent, en HTTPS.'),
+        h('pre', { class: 'code boot-error' }, `${e?.name ?? 'Erreur'} : ${e?.message ?? String(e)}`),
+      ),
+    );
   });
 
 // Service worker : uniquement en production et hors aperçu intégré.

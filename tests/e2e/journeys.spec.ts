@@ -5,6 +5,9 @@ import { go, isMobile, noHorizontalOverflow, open, scenario, shot } from './help
 test.describe('Parcours critiques', () => {
   test('1. Première ouverture : état calculé, démonstration signalée, aucune erreur', async ({ page }, testInfo) => {
     const errors = await open(page);
+    await page.waitForTimeout(300);
+    expect(await page.locator('.boot-error').allTextContents(), 'erreur de démarrage').toEqual([]);
+    expect(errors).toEqual([]);
     await expect(page.locator('.dial')).toBeVisible();
     await expect(page.locator('#hero-title')).toBeVisible();
     await expect(page.getByText('Démonstration : données fictives')).toBeVisible();
