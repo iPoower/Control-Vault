@@ -1,7 +1,10 @@
 // Service worker Control Vault — cache de l'interface uniquement.
 // Jamais de mise en cache des réponses Google ou Supabase : ce sont des données personnelles
 // qui doivent toujours venir du service, vérifiées.
-const VERSION = 'cv-shell-v1';
+// CacheStorage est partagé par toutes les applications d'une même origine GitHub Pages.
+// Ne jamais supprimer les caches Race Control ou les caches tiers.
+const CACHE_PREFIX = 'cv-shell-';
+const VERSION = `${CACHE_PREFIX}v2`;
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(VERSION).then((c) => c.addAll(['./', './index.html', './manifest.webmanifest', './icons/icon.svg'])));
@@ -10,7 +13,9 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k)))).then(() => self.clients.claim()),
+    caches.keys()
+      .then((keys) => Promise.all(keys.filter((k) => k.startsWith(CACHE_PREFIX) && k !== VERSION).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim()),
   );
 });
 
