@@ -15,8 +15,9 @@ test.describe('Parcours critiques', () => {
     await expect(page.locator('#hero-title')).not.toHaveText('Tout est vérifié');
     await expect(page.locator('.dial')).toHaveAttribute('aria-label', /3 sources vérifiées sur 4/);
     await noHorizontalOverflow(page);
-    await shot(page, testInfo, '01-accueil');
+    // Vérifié avant la capture : sous WebKit, l'outil de capture injecte lui-même un style que la CSP refuse.
     expect(errors).toEqual([]);
+    await shot(page, testInfo, '01-accueil');
   });
 
   test('3-4. Explorateur : dossier, recherche, filtre, aperçu, dossier vide', async ({ page }, testInfo) => {
