@@ -78,14 +78,15 @@ test.describe('Parcours critiques', () => {
     await shot(page, testInfo, '07-accueil-verifie');
   });
 
-  test('Envoi interrompu : rien n’est écrit, erreur expliquée, « Réessayer » fonctionne', async ({ page }, testInfo) => {
+  test('Envoi interrompu : aucun succès confirmé, erreur expliquée, « Réessayer » fonctionne', async ({ page }, testInfo) => {
     await open(page);
     await scenario(page, testInfo, 'Envoi interrompu');
     await go(page, 'Applications', testInfo);
     await page.locator('article.app-card').filter({ hasText: 'Race Control' }).getByRole('button', { name: 'Sauvegarder' }).click();
     const sheet = page.locator('dialog.sheet[open]');
     await expect(sheet.getByRole('heading', { name: 'Envoi interrompu — connexion perdue' })).toBeVisible({ timeout: 10_000 });
-    await expect(sheet.getByText('Rien n’a été écrit dans Drive.')).toBeVisible();
+    await expect(sheet.getByText('La sauvegarde n’est pas confirmée.')).toBeVisible();
+    await expect(sheet.getByText('Rien n’a été écrit dans Drive.')).toHaveCount(0);
     await expect(sheet.getByText('Interrompu à cette étape')).toBeVisible();
     await expect(sheet.getByText('Sauvegarde terminée')).toHaveCount(0); // aucun faux succès
     await shot(page, testInfo, '08-envoi-interrompu');
