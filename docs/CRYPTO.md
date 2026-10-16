@@ -2,6 +2,15 @@
 
 > **Statut : étude, rien n'est activé.** Aujourd'hui, Control Vault ne chiffre que des données de démonstration avec une clé de session éphémère, perdue à la fermeture de l'onglet. **Aucune sauvegarde réelle et durable ne sera activée avant la validation complète de la Phase 3, avec revue humaine.**
 
+**Périmètre de cette étude : données propres à Control Vault et fichiers génériques.**
+Les paquets Race Control définis par [INTEGRATION.md](INTEGRATION.md) suivent un
+autre principe : leur chiffrement et leur authentification appartiennent à Race
+Control. Ils ne sont ni déchiffrés par Control Vault ni ré-enveloppés dans un
+`.cvault` avec sa clé de session. La Phase 3 ci-dessous n'est donc pas un prérequis
+pour transporter ces paquets opaques. Le choix Argon2id/DEK reste une proposition
+distincte ; il ne modifie pas les paramètres PBKDF2/GCM du contrat Race Control.
+Les objectifs de durée et de mémoire ci-dessous ne sont pas des mesures iPhone.
+
 ## Le problème à résoudre
 
 La phrase secrète de l'utilisateur doit devenir une clé AES-256 sans être stockée nulle part. Si un fichier `.cvault` fuit (Drive compromis, partage par erreur), seule la difficulté de deviner la phrase protège son contenu. La fonction de dérivation (KDF) fixe le coût de chaque essai pour un attaquant.
