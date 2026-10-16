@@ -6,7 +6,7 @@ import { decrypt, encrypt, generateKey, sameHash, sha256 } from './core/crypto';
 import { countCollections, diffPayload } from './core/diff';
 import { createStore, loadSettings, type State } from './core/store';
 import type { AppId, OpEvent, Payload, Scenario, Version } from './core/types';
-import { safeFileName, validateImport, validatePayload } from './core/validate';
+import { importFileError, safeFileName, validateImport, validatePayload } from './core/validate';
 import { demoApps, FOLDER, newVersionId, ROOT_ID, seedDemo, versionFileName } from './data/demo';
 import { ServiceError } from './services/contracts';
 import { DemoDrive, DemoJournal } from './services/demo-drive';
@@ -133,13 +133,13 @@ export class OperationError extends Error {
 }
 
 function explain(e: unknown): { message: string; retryable: boolean } {
-  if (e instanceof DOMException && e.name === 'AbortError') return { message: 'Opération annulée. Rien n’a été écrit dans Drive.', retryable: true };
+  if (e instanceof DOMException && e.name === 'AbortError') return { message: 'Opération annulée. Aucun succès n’a été confirmé.', retryable: true };
   if (e instanceof ServiceError) {
     switch (e.code) {
       case 'offline':
-        return { message: 'Connexion perdue avant la fin. Rien n’a été écrit dans Drive.', retryable: true };
+        return { message: 'Connexion perdue avant la fin. La conservation du fichier n’est pas confirmée.', retryable: true };
       case 'interrupted':
-        return { message: 'Envoi interrompu — connexion perdue. Rien n’a été écrit dans Drive.', retryable: true };
+        return { message: 'Envoi interrompu — connexion perdue. La sauvegarde n’est pas confirmée.', retryable: true };
       case 'auth-expired':
         return { message: 'Session Google expirée. Reconnecte-toi puis relance la sauvegarde.', retryable: false };
       case 'not-found':
@@ -149,6 +149,15 @@ function explain(e: unknown): { message: string; retryable: boolean } {
     }
   }
   return { message: e instanceof Error ? e.message : 'Erreur inattendue.', retryable: true };
+}
+
+/** Un hash annoncé par le fournisseur ne prouve pas la relecture du fichier. */
+async function readVerified(fileId: string, expected: string, signal?: AbortSignal): Promise<Uint8Array> {
+  const remote = await drive.remoteSha256(fileId, signal);
+  if (!sameHash(remote, expected)) throw new OperationError('Empreinte distante différente : fichier non vérifié.', 4, true, false);
+  const bytes = await drive.download(fileId, signal);
+  if (!sameHash(await sha256(bytes), expected)) throw new OperationError('Relecture différente : fichier non vérifié.', 4, true, false);
+  return bytes;
 }
 
 // ─── Sauvegarde ────────────────────────────────────────────────────────────
@@ -181,7 +190,6 @@ export async function runBackup(
     go(1, 'running');
     const check = validatePayload(JSON.parse(json), appId);
     if (!check.ok) throw new OperationError(check.error, 1, false);
-    const plainHash = await sha256(json);
     go(1, 'done', { note: 'Structure conforme' });
 
     go(2, 'running');
@@ -200,11 +208,8 @@ export async function runBackup(
     go(3, 'done', { progress: 1 });
 
     go(4, 'running');
-    const remote = await drive.remoteSha256(file.id, signal);
-    if (!sameHash(remote, localHash)) {
-      throw new OperationError('L’empreinte du fichier dans Drive ne correspond pas. La version est marquée comme non fiable.', 4, true, false);
-    }
-    go(4, 'done', { note: 'SHA-256 identique' });
+    await readVerified(file.id, localHash, signal);
+    go(4, 'done', { note: 'Octets retéléchargés, SHA-256 identique' });
 
     const version: Version = {
       id,
@@ -217,7 +222,6 @@ export async function runBackup(
       counts,
       verifiedAt: Date.now(),
     };
-    void plainHash;
     const durationMs = performance.now() - started;
     store.set({
       versions: [...store.get().versions, version],
@@ -280,7 +284,9 @@ export async function previewRestore(versionId: string, signal?: AbortSignal): P
     const blob = await drive.download(file.id, signal);
     const h = await sha256(blob);
     if (!sameHash(h, version.sha256)) throw new OperationError('Le fichier a été modifié depuis la sauvegarde : restauration bloquée.', 2, false);
-    const payload = JSON.parse(await decrypt(sessionKey, blob)) as Payload;
+    const check = validatePayload(JSON.parse(await decrypt(sessionKey, blob)), version.appId);
+    if (!check.ok) throw new OperationError(check.error, 4, false);
+    const payload = check.payload;
     const diff = diffPayload(app.payload, payload);
     const losses = diff.collections
       .filter((c) => c.removed > 0 && app.collections[c.key]?.critical)
@@ -294,9 +300,11 @@ export async function previewRestore(versionId: string, signal?: AbortSignal): P
 
 export async function runRestore(versionId: string, onStep: (u: StepUpdate) => void, signal?: AbortSignal) {
   const started = performance.now();
-  const version = store.get().versions.find((v) => v.id === versionId)!;
+  const version = store.get().versions.find((v) => v.id === versionId);
+  if (!version) throw new OperationError('Version introuvable.', 0, false);
   const appId = version.appId;
   const before = store.get().apps[appId];
+  let applied: typeof before | undefined;
   let step = 0;
   try {
     // 1. Copie de sécurité : sans elle, on ne continue pas.
@@ -333,14 +341,19 @@ export async function runRestore(versionId: string, onStep: (u: StepUpdate) => v
     step = 5;
     onStep({ index: 5, state: 'running' });
     if (signal?.aborted) throw new DOMException('Annulé', 'AbortError');
-    store.set({ apps: { ...store.get().apps, [appId]: { ...before, payload: check.payload } } });
+    if (store.get().apps[appId] !== before) {
+      throw new OperationError('L’état actuel a changé pendant la restauration. Refaire l’aperçu ; les nouveaux ajouts sont conservés.', 5, false);
+    }
+    applied = { ...before, payload: check.payload };
+    store.set({ apps: { ...store.get().apps, [appId]: applied } });
     onStep({ index: 5, state: 'done' });
 
     pushEvent({ id: `e-r-${Date.now()}`, at: Date.now(), source: appId, type: 'restore', result: 'success', durationMs: performance.now() - started, sizeBytes: version.sizeBytes, integrity: 'verified', versionId, sha256: version.sha256 });
     return { safetyVersionId: safety.version.id };
   } catch (e) {
-    // Aucun état intermédiaire : l'application garde exactement ses données d'avant.
-    store.set({ apps: { ...store.get().apps, [appId]: before } });
+    // Annuler uniquement notre propre publication ; ne jamais rétablir un ancien
+    // instantané au-dessus d'une modification effectuée par une autre opération.
+    if (applied && store.get().apps[appId] === applied) store.set({ apps: { ...store.get().apps, [appId]: before } });
     const err = e instanceof OperationError ? e : new OperationError(explain(e).message, step, explain(e).retryable);
     onStep({ index: err.step, state: 'failed', note: err.message });
     pushEvent({
@@ -365,17 +378,25 @@ export async function verifyAll(onProgress: (done: number, total: number) => voi
   const started = performance.now();
   const versions = store.get().versions;
   let mismatches = 0;
+  const verified = new Map<string, boolean>();
   for (const [i, v] of versions.entries()) {
     const file = drive.findByVersion(v.id);
-    const bytes = file ? drive.bytesOf(file.id) : null;
     if (signal?.aborted) throw new DOMException('Annulé', 'AbortError');
-    const remote = file ? await drive.remoteSha256(file.id, signal) : '';
-    const local = bytes ? await sha256(bytes) : '';
-    if (!sameHash(remote, v.sha256) || !sameHash(local, v.sha256)) mismatches++;
+    try {
+      if (!file) throw new OperationError('Fichier introuvable.', 0, false);
+      await readVerified(file.id, v.sha256, signal);
+      verified.set(v.id, true);
+    } catch (e) {
+      if (signal?.aborted || e instanceof DOMException && e.name === 'AbortError') throw e;
+      verified.set(v.id, false);
+      mismatches++;
+    }
     onProgress(i + 1, versions.length);
   }
   const at = Date.now();
-  store.set({ versions: versions.map((v) => ({ ...v, verifiedAt: mismatches ? v.verifiedAt : at })) });
+  // Ne pas supprimer une version ajoutée pendant le contrôle. Une lecture en
+  // échec révoque son statut vérifié, sans supprimer le fichier ni l'historique.
+  store.set({ versions: store.get().versions.map((v) => verified.has(v.id) ? { ...v, verifiedAt: verified.get(v.id) ? at : undefined } : v) });
   pushEvent({
     id: `e-v-${at}`,
     at,
@@ -384,7 +405,7 @@ export async function verifyAll(onProgress: (done: number, total: number) => voi
     result: mismatches ? 'failed' : 'success',
     durationMs: performance.now() - started,
     integrity: mismatches ? 'mismatch' : 'verified',
-    reason: mismatches ? `${mismatches} fichier(s) ne correspondent plus à leur empreinte.` : undefined,
+    reason: mismatches ? `${mismatches} fichier(s) non vérifiés : lecture ou empreinte en échec.` : undefined,
     resolved: !mismatches,
   });
   return { total: versions.length, mismatches };
@@ -393,32 +414,36 @@ export async function verifyAll(onProgress: (done: number, total: number) => voi
 // ─── Import JSON ───────────────────────────────────────────────────────────
 
 export async function importJson(file: File, parentId: string) {
+  const fileError = importFileError(file.name, file.size);
+  if (fileError) throw new OperationError(fileError, 0, false);
   const text = await file.text();
   const check = validateImport(file.name, file.size, text);
   if (!check.ok) throw new OperationError(check.error, 0, false);
   const started = performance.now();
   const bytes = new TextEncoder().encode(text);
+  const local = await sha256(bytes);
   try {
     const item = await drive.upload({ name: safeFileName(file.name), parentId, bytes, family: 'json' }, () => {}, undefined);
-    const remote = await drive.remoteSha256(item.id);
-    const local = await sha256(bytes);
-    const ok = sameHash(remote, local);
+    await readVerified(item.id, local);
     store.set({ catalog: [...drive.items.values()] });
     pushEvent({
       id: `e-i-${Date.now()}`,
       at: Date.now(),
       source: check.appId ?? 'vault',
       type: 'import',
-      result: ok ? 'success' : 'failed',
+      result: 'success',
       durationMs: performance.now() - started,
       sizeBytes: bytes.length,
-      integrity: ok ? 'verified' : 'mismatch',
+      integrity: 'verified',
       sha256: local,
       resolved: true,
     });
     return { item, appId: check.appId };
   } catch (e) {
-    throw new OperationError(explain(e).message, 0, explain(e).retryable);
+    const err = e instanceof OperationError ? e : new OperationError(explain(e).message, 0, explain(e).retryable);
+    pushEvent({ id: `e-if-${Date.now()}`, at: Date.now(), source: check.appId ?? 'vault', type: 'import', result: 'failed',
+      durationMs: performance.now() - started, integrity: 'not-checked', reason: err.message, resolved: false });
+    throw err;
   }
 }
 

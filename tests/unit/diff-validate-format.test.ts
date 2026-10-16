@@ -42,6 +42,29 @@ describe('contrôle des imports', () => {
     expect(validatePayload({ app: 'race-control' }, 'race-control').ok).toBe(false);
     expect(validatePayload([], undefined).ok).toBe(false);
   });
+  it('refuse une version inconnue du payload de démonstration', () => {
+    expect(validatePayload({ app: 'race-control', schema: 999 }, 'race-control').ok).toBe(false);
+    expect(validatePayload({ app: 'race-control', schema: '3' }).ok).toBe(false);
+    expect(validatePayload({ app: 'reconversion-control', schema: 3 }).ok).toBe(false);
+  });
+  it('ne recopie aucun extrait du JSON malformé dans son erreur', () => {
+    const r = validateImport('fixture.json', 60, '{"marqueur":"contenu-fictif-a-ne-pas-afficher", "x": }');
+    expect(r).toEqual({ ok: false, error: 'JSON invalide : fichier refusé.' });
+  });
+  it('ne confond pas les paquets Race Control avec des imports JSON génériques vérifiés', () => {
+    for (const payload of [
+      { format: 'race-control-backup', schemaVersion: 1 },
+      { format: 'race-control-backup', schemaVersion: 999 },
+      { app: 'twrc-backup', v: 1 },
+      { app: 'twrc-backup', v: 2 },
+      { v: 2, kdf: 'PBKDF2-SHA256', s: 'fiction', i: 'fiction', c: 'fiction' },
+      { v: 3, kdf: 'PBKDF2-SHA256', s: 'fiction', i: 'fiction', c: 'fiction' },
+    ]) {
+      const text = JSON.stringify(payload);
+      const r = validateImport('fixture.json', new TextEncoder().encode(text).length, text);
+      expect(r.ok).toBe(false);
+    }
+  });
   it('nettoie les noms de fichiers', () => {
     expect(safeFileName('../a/b:c*.json')).toBe('..-a-b-c-.json');
     expect(safeFileName('   ')).toBe('fichier');

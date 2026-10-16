@@ -463,7 +463,7 @@ export function openVerifyAll() {
     .then(({ total: t, mismatches }) => {
       result.append(
         mismatches
-          ? h('div', { class: 'outcome', dataset: { health: 'failed' } }, failureSeal(), h('div', null, h('h3', null, `${mismatches} fichier(s) altéré(s)`), h('p', { class: 'small muted' }, 'Ces versions ne seront plus proposées à la restauration.')))
+          ? h('div', { class: 'outcome', dataset: { health: 'failed' } }, failureSeal(), h('div', null, h('h3', null, `${mismatches} fichier(s) non vérifié(s)`), h('p', { class: 'small muted' }, 'Lecture ou empreinte en échec. Les fichiers et leur historique sont conservés ; aucune restauration n’est confirmée.')))
           : h('div', { class: 'outcome', dataset: { health: 'verified' } }, seal(), h('div', null, h('h3', null, `${plural(t, 'fichier vérifié', 'fichiers vérifiés')}`), h('p', { class: 'small muted' }, 'Toutes les empreintes correspondent.'))),
       );
       setFoot(sheet, h('button', { class: 'btn btn-primary', type: 'button', onclick: () => sheet.close() }, 'Terminé'));
