@@ -505,11 +505,19 @@ export async function importJson(file: File, parentId: string) {
   try {
     const fileError = importFileError(file.name, file.size);
     if (fileError) throw new OperationError(fileError, 0, false);
-    const text = await file.text();
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    if (bytes.length !== file.size || bytes.length > MAX_IMPORT_BYTES) throw new OperationError('Taille du contenu différente de celle annoncée : fichier refusé.', 0, false);
+    let text: string;
+    try {
+      // File.text() remplace silencieusement un UTF-8 tronqué. Conserver les
+      // octets d’origine et refuser tout remplacement, y compris un BOM JSON.
+      text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+    } catch {
+      throw new OperationError('Encodage UTF-8 invalide : fichier refusé.', 0, false);
+    }
     const check = validateImport(file.name, file.size, text);
     if (!check.ok) throw new OperationError(check.error, 0, false);
     appId = check.appId;
-    const bytes = new TextEncoder().encode(text);
     const local = await sha256(bytes);
     const item = await drive.upload({ name: safeFileName(file.name), parentId, bytes, family: 'json' }, () => {}, undefined);
     await readVerified(item.id, local, undefined, bytes.length);

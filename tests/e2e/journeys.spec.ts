@@ -52,6 +52,10 @@ test.describe('Parcours critiques', () => {
     await expect(page.getByText(/Import refusé : JSON invalide/)).toBeVisible();
     await input.setInputFiles({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('bonjour') });
     await expect(page.getByText(/Seuls les fichiers \.json/)).toBeVisible();
+    await input.setInputFiles({ name: 'tronque.json', mimeType: 'application/json', buffer: Buffer.concat([Buffer.from('{"fiction":"'), Buffer.from([0xf0, 0x9f, 0x92]), Buffer.from('"}')]) });
+    await expect(page.getByText(/Import refusé : Encodage UTF-8 invalide/)).toBeVisible();
+    await input.setInputFiles({ name: 'incomplet.json', mimeType: 'application/json', buffer: Buffer.from('{"app":"race-control","schema":3}') });
+    await expect(page.getByText(/Import refusé : Contenu de démonstration incomplet/)).toBeVisible();
     await input.setInputFiles({ name: 'export-race.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ app: 'race-control', schema: 3, revision: 1, trajets: [], pneus: [], reglages: {} })) });
     await expect(page.getByText('export-race.json importé et vérifié')).toBeVisible();
     await expect(page.getByRole('listitem').filter({ hasText: 'export-race.json' })).toBeVisible();

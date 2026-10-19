@@ -39,9 +39,11 @@ describe('confirmation après relecture des octets', () => {
 
   it('refuse un fichier surdimensionné avant de lire son contenu', async () => {
     const text = vi.fn().mockResolvedValue('{}');
-    const file = { name: 'fixture.json', size: 10 * 1024 * 1024 + 1, text } as unknown as File;
+    const arrayBuffer = vi.fn().mockResolvedValue(new ArrayBuffer(0));
+    const file = { name: 'fixture.json', size: 10 * 1024 * 1024 + 1, text, arrayBuffer } as unknown as File;
     await expect(app.importJson(file, app.FOLDER.archives)).rejects.toThrow();
     expect(text).not.toHaveBeenCalled();
+    expect(arrayBuffer).not.toHaveBeenCalled();
   });
 
   it('révoque uniquement la vérification du fichier qui échoue à la relecture', async () => {
@@ -185,7 +187,7 @@ describe('audit : interruptions, concurrence imbriquée et confidentialité', ()
     expect(app.store.get().versions.find(v => v.id === version.id)?.verifiedAt).toBeUndefined();
   });
   it('une erreur de lecture du fichier importé reste expurgée et n’annonce aucun succès', async () => {
-    const file = { name: 'fixture.json', size: 2, text: async () => { throw new Error('DONNEE-FICTIVE-CONFIDENTIELLE'); } } as unknown as File;
+    const file = { name: 'fixture.json', size: 2, arrayBuffer: async () => { throw new Error('DONNEE-FICTIVE-CONFIDENTIELLE'); } } as unknown as File;
     await expect(app.importJson(file, app.FOLDER.archives)).rejects.not.toThrow(/DONNEE-FICTIVE/);
     expect(app.store.get().events[0]).toMatchObject({ type: 'import', result: 'failed' });
   });
@@ -224,5 +226,28 @@ describe('audit : interruptions, concurrence imbriquée et confidentialité', ()
     const { version } = await app.runBackup('race-control', () => {});
     expect(version.counts.trajets).toBe(120);
     expect((await app.previewRestore(version.id)).payload).toEqual(payload);
+  });
+
+  it.each([
+    ['UTF-8 tronqué', new Uint8Array([...new TextEncoder().encode('{"fiction":"'), 0xf0, 0x9f, 0x92, ...new TextEncoder().encode('"}')])],
+    ['BOM', new Uint8Array([0xef, 0xbb, 0xbf, 0x7b, 0x7d])],
+  ])('refuse %s sans remplacer ou retirer silencieusement des octets', async (_name, bytes) => {
+    const before = app.drive.items.size;
+    await expect(app.importJson(new File([bytes], 'fixture.json'), app.FOLDER.archives)).rejects.toThrow();
+    expect(app.drive.items.size).toBe(before);
+    expect(app.store.get().events[0]).toMatchObject({ type: 'import', result: 'failed' });
+  });
+
+  it('conserve exactement les octets UTF-8 valides, accents et retours de ligne inclus', async () => {
+    const bytes = new TextEncoder().encode('{\r\n "fiction": "écriture fictive"\r\n}\r\n');
+    const { item } = await app.importJson(new File([bytes], 'fixture.json'), app.FOLDER.archives);
+    expect(app.drive.bytesOf(item.id)).toEqual(bytes);
+    expect(app.store.get().events[0]).toMatchObject({ type: 'import', result: 'success', sha256: await sha256(bytes) });
+  });
+
+  it('refuse une taille lue incohérente sans envoyer le contenu', async () => {
+    const file = { name: 'fixture.json', size: 2, arrayBuffer: async () => new TextEncoder().encode('{"fiction":true}').buffer } as unknown as File;
+    await expect(app.importJson(file, app.FOLDER.archives)).rejects.toThrow(/Taille/);
+    expect(app.drive.upload).not.toHaveBeenCalled();
   });
 });
