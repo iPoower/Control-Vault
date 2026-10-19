@@ -45,7 +45,33 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - name: Résolution propre, versions directes existantes conservées
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
+          import { join } from 'node:path';
+          import { spawnSync } from 'node:child_process';
+          const target = JSON.parse(readFileSync('package.json', 'utf8'));
+          const old = JSON.parse(readFileSync('package-lock.json', 'utf8'));
+          const pinned = structuredClone(target);
+          for (const group of ['dependencies', 'devDependencies']) {
+            for (const name of Object.keys(pinned[group])) {
+              if (name !== 'vitest') {
+                const version = old.packages['node_modules/' + name]?.version;
+                if (!version) throw new Error('Version directe manquante.');
+                pinned[group][name] = version;
+              }
+            }
+          }
+          const work = mkdtempSync(join(process.env.RUNNER_TEMP, 'cv-lock-'));
+          writeFileSync(join(work, 'package.json'), JSON.stringify(pinned));
+          const result = spawnSync('npx', ['--yes', 'npm@11.10.0', 'install', '--package-lock-only', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: work, stdio: 'inherit', timeout: 180000 });
+          if (result.status !== 0) process.exit(result.status || 1);
+          const lock = JSON.parse(readFileSync(join(work, 'package-lock.json'), 'utf8'));
+          lock.packages[''].dependencies = target.dependencies;
+          lock.packages[''].devDependencies = target.devDependencies;
+          writeFileSync('package-lock.json', JSON.stringify(lock, null, 2) + '\n');
+          NODE
       - uses: actions/upload-artifact@v4
         with:
           name: verrou-audit-pr6
