@@ -7,6 +7,15 @@ const CACHE_PREFIX = 'cv-shell-';
 const VERSION = `${CACHE_PREFIX}v3`;
 const APP_PATH = new URL(self.registration.scope).pathname;
 const cached = (request) => caches.open(VERSION).then((cache) => cache.match(request));
+async function remember(request, response) {
+  try {
+    const cache = await caches.open(VERSION);
+    await cache.put(request, response.clone());
+  } catch {
+    // Un quota de cache d’interface ne doit pas masquer la réponse réseau valide.
+  }
+  return response;
+}
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(VERSION).then((c) => c.addAll(['./', './index.html', './manifest.webmanifest', './icons/icon.svg'])));
@@ -32,8 +41,7 @@ self.addEventListener('fetch', (event) => {
       fetch(req)
         .then((res) => {
           if (res.ok && res.headers.get('content-type')?.includes('text/html')) {
-            const copy = res.clone();
-            event.waitUntil(caches.open(VERSION).then((c) => c.put('./index.html', copy)));
+            return remember('./index.html', res);
           }
           return res;
         })
@@ -49,11 +57,7 @@ self.addEventListener('fetch', (event) => {
         (hit) =>
           hit ||
           fetch(req).then((res) => {
-            if (res.ok) {
-              const copy = res.clone();
-              event.waitUntil(caches.open(VERSION).then((c) => c.put(req, copy)));
-            }
-            return res;
+            return res.ok ? remember(req, res) : res;
           }),
       ),
     );

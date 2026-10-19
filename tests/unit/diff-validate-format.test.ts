@@ -58,6 +58,8 @@ describe('contrôle des imports', () => {
       { format: 'race-control-backup', schemaVersion: 999 },
       { app: 'twrc-backup', v: 1 },
       { app: 'twrc-backup', v: 2 },
+      { app: 'twrc', v: 1, settings: {} },
+      { app: 'twrc', v: 2, settings: {}, durable: {} },
       { v: 2, kdf: 'PBKDF2-SHA256', s: 'fiction', i: 'fiction', c: 'fiction' },
       { v: 3, kdf: 'PBKDF2-SHA256', s: 'fiction', i: 'fiction', c: 'fiction' },
     ]) {

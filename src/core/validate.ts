@@ -129,7 +129,7 @@ export function validateImport(name: string, sizeBytes: number, text: string): V
   // vérifié, sans validation du schéma, du Base64 et du hash contractuels.
   if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
     const p = parsed as Record<string, unknown>;
-    if (p.format === 'race-control-backup' || p.app === 'twrc-backup' ||
+    if (p.format === 'race-control-backup' || p.app === 'twrc-backup' || p.app === 'twrc' ||
       p.kdf === 'PBKDF2-SHA256' && typeof p.c === 'string' && typeof p.s === 'string' && typeof p.i === 'string') {
       return { ok: false, error: 'Ce paquet Race Control n’est pas pris en charge par le prototype. Conserve le fichier original et utilise Race Control pour sa restauration.' };
     }

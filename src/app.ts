@@ -511,22 +511,22 @@ export async function importJson(file: File, parentId: string) {
     appId = check.appId;
     const bytes = new TextEncoder().encode(text);
     const local = await sha256(bytes);
-      const item = await drive.upload({ name: safeFileName(file.name), parentId, bytes, family: 'json' }, () => {}, undefined);
-      await readVerified(item.id, local, undefined, bytes.length);
-      store.set({ catalog: [...drive.items.values()] });
-      pushEvent({
-        id: `e-i-${Date.now()}`,
-        at: Date.now(),
-        source: check.appId ?? 'vault',
-        type: 'import',
-        result: 'success',
-        durationMs: performance.now() - started,
-        sizeBytes: bytes.length,
-        integrity: 'verified',
-        sha256: local,
-        resolved: true,
-      });
-      return { item, appId: check.appId };
+    const item = await drive.upload({ name: safeFileName(file.name), parentId, bytes, family: 'json' }, () => {}, undefined);
+    await readVerified(item.id, local, undefined, bytes.length);
+    store.set({ catalog: [...drive.items.values()] });
+    pushEvent({
+      id: `e-i-${Date.now()}`,
+      at: Date.now(),
+      source: check.appId ?? 'vault',
+      type: 'import',
+      result: 'success',
+      durationMs: performance.now() - started,
+      sizeBytes: bytes.length,
+      integrity: 'verified',
+      sha256: local,
+      resolved: true,
+    });
+    return { item, appId: check.appId };
   } catch (e) {
     const err = e instanceof OperationError ? e : new OperationError(explain(e).message, 0, explain(e).retryable);
     pushEvent({ id: `e-if-${Date.now()}`, at: Date.now(), source: appId ?? 'vault', type: 'import', result: 'failed',
