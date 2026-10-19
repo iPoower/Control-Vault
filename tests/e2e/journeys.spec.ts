@@ -93,7 +93,7 @@ test.describe('Parcours critiques', () => {
     await expect(sheet.getByText('Rien n’a été écrit dans Drive.')).toHaveCount(0);
     await expect(sheet.getByText('Interrompu à cette étape')).toBeVisible();
     await expect(sheet.getByText('Sauvegarde terminée')).toHaveCount(0); // aucun faux succès
-    const failure = sheet.locator('.callout[data-health="failed"]');
+    const failure = sheet.locator('.outcome[data-health="failed"]');
     await failure.scrollIntoViewIfNeeded();
     await expect(failure).toBeInViewport({ ratio: 0.99 });
     await shot(page, testInfo, '08-envoi-interrompu');
