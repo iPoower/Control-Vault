@@ -5,7 +5,7 @@ describe('empreintes', () => {
   it('SHA-256 conforme au vecteur de test « abc »', async () => {
     expect(await sha256('abc')).toBe('ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
   });
-  it('comparaison en temps constant', () => {
+  it('comparaison des empreintes (sans garantie temporelle JavaScript)', () => {
     expect(sameHash('abcd', 'abcd')).toBe(true);
     expect(sameHash('abcd', 'abce')).toBe(false);
     expect(sameHash('abc', 'abcd')).toBe(false);
@@ -38,6 +38,28 @@ describe('chiffrement AES-256-GCM', () => {
   it('mauvaise clé refusée', async () => {
     const blob = await encrypt(await generateKey(), 'secret');
     await expect(decrypt(await generateKey(), blob)).rejects.toThrow(/clé incorrecte ou fichier altéré/);
+  });
+
+  it('un hash recalculé après corruption ne constitue pas une authentification GCM', async () => {
+    const key = await generateKey(), blob = await encrypt(key, 'donnée fictive');
+    blob[blob.length - 1] ^= 1;
+    const attackerHash = await sha256(blob);
+    expect(sameHash(await sha256(blob), attackerHash)).toBe(true);
+    await expect(decrypt(key, blob)).rejects.toThrow(VaultFormatError);
+  });
+
+  it('documente la limite du v1 : le sel inutilisé ne fait pas partie des données authentifiées', async () => {
+    const key = await generateKey(), blob = await encrypt(key, 'fiction');
+    const hash = await sha256(blob);
+    blob[5] ^= 1;
+    expect(await sha256(blob)).not.toBe(hash);
+    expect(await decrypt(key, blob)).toBe('fiction');
+  });
+
+  it('refuse une enveloppe sans tag complet et un clair non UTF-8', async () => {
+    const key = await generateKey(), blob = await encrypt(key, new Uint8Array([255]));
+    expect(() => readEnvelope(blob.slice(0, 48))).toThrow(VaultFormatError);
+    await expect(decrypt(key, blob)).rejects.toThrow(VaultFormatError);
   });
 
   it('fichier étranger refusé', () => {

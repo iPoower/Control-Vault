@@ -14,6 +14,7 @@ import {
   verifyAll,
   versionsOf,
   type StepUpdate,
+  type RestorePreview,
 } from '../app';
 import { appHealth, openFailures } from '../core/status';
 import { formatBytes, formatDate, formatDateTime, formatDuration, formatRelative, plural, shortHash } from '../core/format';
@@ -374,7 +375,7 @@ export function openRestore(versionId: string) {
           ),
       );
       setFoot(sheet, h('button', { class: 'btn', type: 'button', onclick: () => sheet.close() }, 'Annuler'), go);
-      go.addEventListener('click', () => runRestoreInSheet(sheet, version));
+      go.addEventListener('click', () => runRestoreInSheet(sheet, version, p));
     })
     .catch((e: OperationError) => {
       if (ctrl.signal.aborted) return;
@@ -390,7 +391,7 @@ function splitLabel(app: { collections: Record<string, { one: string; many: stri
   return [l?.one ?? key, l?.many ?? key];
 }
 
-function runRestoreInSheet(sheet: SheetHandle, version: Version) {
+function runRestoreInSheet(sheet: SheetHandle, version: Version, preview: RestorePreview) {
   const app = store.get().apps[version.appId];
   const steps = stepList(RESTORE_STEPS);
   const result = h('div', { 'aria-live': 'polite' });
@@ -400,7 +401,7 @@ function runRestoreInSheet(sheet: SheetHandle, version: Version) {
     if (store.get().busy?.kind === 'restore') toast(`La restauration de ${app.name} continue en arrière-plan.`, { kind: 'info' });
   });
   store.set({ busy: { kind: 'restore', appId: version.appId } });
-  runRestore(version.id, steps.update)
+  runRestore(version.id, steps.update, undefined, preview)
     .then(({ safetyVersionId }) => {
       result.append(
         h(
@@ -432,11 +433,11 @@ function runRestoreInSheet(sheet: SheetHandle, version: Version) {
           'div',
           { class: 'outcome', dataset: { health: 'failed' } },
           failureSeal(),
-          h('div', null, h('h3', null, 'Restauration interrompue'), h('p', { class: 'small' }, e.message), h('p', { class: 'small muted' }, 'Les données actuelles n’ont pas été modifiées.')),
+          h('div', null, h('h3', null, 'Restauration interrompue'), h('p', { class: 'small' }, e.message), h('p', { class: 'small muted' }, e.untouched ? 'Aucune donnée concurrente n’a été remplacée. L’état antérieur est conservé.' : 'Un ajout concurrent après application a été conservé. Retour arrière automatique arrêté ; conserve aussi la copie de sécurité.')),
         ),
       );
       setFoot(sheet, h('button', { class: 'btn', type: 'button', onclick: () => sheet.close() }, 'Fermer'));
-      if (!sheet.dialog.isConnected) toast(`${app.name} : restauration interrompue, rien n’a été modifié`, { kind: 'bad' });
+      if (!sheet.dialog.isConnected) toast(`${app.name} : restauration interrompue. Consulte le journal et conserve la copie de sécurité.`, { kind: 'bad' });
     })
     .finally(() => store.set({ busy: null }));
 }
@@ -470,7 +471,7 @@ export function openVerifyAll() {
     })
     .catch(() => {
       if (sheet.dialog.isConnected) {
-        result.append(h('p', { class: 'muted' }, 'Contrôle annulé. Aucune donnée n’a été modifiée.'));
+        result.append(h('p', { class: 'muted' }, 'Contrôle interrompu. Les fichiers et les résultats déjà obtenus sont conservés.'));
         setFoot(sheet, h('button', { class: 'btn', type: 'button', onclick: () => sheet.close() }, 'Fermer'));
       }
     })

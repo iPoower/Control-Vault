@@ -63,6 +63,7 @@ describe('restauration : préserver une modification concurrente', () => {
   });
   async function conflict(fail: boolean) {
     const version = app.versionsOf('race-control')[1], file = app.drive.findByVersion(version.id)!;
+    const preview = await app.previewRestore(version.id);
     const before = app.store.get().apps['race-control'];
     const concurrent = { ...before, payload: { ...before.payload, revision: 999, ajoutFictif: 'à conserver' } };
     const download = app.drive.download.bind(app.drive);
@@ -73,9 +74,119 @@ describe('restauration : préserver une modification concurrente', () => {
       }
       return download(id, signal);
     });
-    await expect(app.runRestore(version.id, () => {})).rejects.toThrow();
+    await expect(app.runRestore(version.id, () => {}, undefined, preview)).rejects.toThrow();
     expect(app.store.get().apps['race-control']).toBe(concurrent);
   }
   it('refuse de remplacer un état modifié pendant le téléchargement', () => conflict(false));
   it('ne restaure pas un ancien instantané quand le téléchargement échoue après un ajout concurrent', () => conflict(true));
+});
+
+describe('audit : interruptions, concurrence imbriquée et confidentialité', () => {
+  it('refuse aussi une modification imbriquée sans remplacement de la référence', async () => {
+    const version = app.versionsOf('race-control')[1];
+    const preview = await app.previewRestore(version.id);
+    await expect(app.runRestore(version.id, u => {
+      if (u.index === 5 && u.state === 'running') app.store.get().apps['race-control'].payload.ajoutFictif = 'conservé';
+    }, undefined, preview)).rejects.toThrow();
+    expect(app.store.get().apps['race-control'].payload.ajoutFictif).toBe('conservé');
+  });
+
+  it('ne supprime pas un ajout imbriqué lors du retour arrière après publication', async () => {
+    const version = app.versionsOf('race-control')[1];
+    const preview = await app.previewRestore(version.id);
+    await expect(app.runRestore(version.id, u => {
+      if (u.index === 5 && u.state === 'done') {
+        app.store.get().apps['race-control'].payload.ajoutFictif = 'conservé après publication';
+        throw new Error('Interruption fictive après publication.');
+      }
+    }, undefined, preview)).rejects.toThrow();
+    expect(app.store.get().apps['race-control'].payload.ajoutFictif).toBe('conservé après publication');
+    expect(app.store.get().events[0].reason).not.toContain('n’ont pas été modifiées');
+  });
+
+  it('révoque une preuve déjà invalidée même si le contrôle global est ensuite annulé', async () => {
+    const version = app.store.get().versions[0], file = app.drive.findByVersion(version.id)!;
+    const download = app.drive.download.bind(app.drive);
+    vi.spyOn(app.drive, 'download').mockImplementation((id, signal) => id === file.id ? Promise.resolve(new Uint8Array([9])) : download(id, signal));
+    const ctrl = new AbortController();
+    await expect(app.verifyAll(done => { if (done === 1) ctrl.abort(); }, ctrl.signal)).rejects.toThrow();
+    expect(app.store.get().versions.find(v => v.id === version.id)?.verifiedAt).toBeUndefined();
+    expect(app.drive.bytesOf(file.id)).not.toBeNull();
+  });
+
+  it('n’attribue pas une preuve ancienne à une version remplacée pendant la lecture', async () => {
+    const version = app.store.get().versions[0], file = app.drive.findByVersion(version.id)!;
+    const download = app.drive.download.bind(app.drive);
+    vi.spyOn(app.drive, 'download').mockImplementation(async (id, signal) => {
+      const bytes = await download(id, signal);
+      if (id === file.id) app.store.set({ versions: app.store.get().versions.map(v => v.id === version.id ? { ...v, sha256: '0'.repeat(64), verifiedAt: undefined } : v) });
+      return bytes;
+    });
+    await app.verifyAll(() => {});
+    expect(app.store.get().versions.find(v => v.id === version.id)?.verifiedAt).toBeUndefined();
+  });
+
+  it('ne confirme pas un succès si l’annulation survient à la fin de la relecture', async () => {
+    const before = app.store.get().versions.length, ctrl = new AbortController();
+    const download = app.drive.download.bind(app.drive);
+    vi.spyOn(app.drive, 'download').mockImplementation(async (id, signal) => { const bytes = await download(id, signal); ctrl.abort(); return bytes; });
+    await expect(app.runBackup('race-control', () => {}, ctrl.signal)).rejects.toThrow();
+    expect(app.store.get().versions).toHaveLength(before);
+    expect(app.store.get().events[0].result).toBe('cancelled');
+  });
+
+  it('ne transmet aucun message brut de fournisseur au journal ni à l’erreur publique', async () => {
+    const marker = 'DONNEE-FICTIVE-CONFIDENTIELLE';
+    vi.mocked(app.drive.upload).mockRejectedValue(new Error(marker));
+    let error: unknown;
+    try { await app.runBackup('race-control', () => {}); } catch (e) { error = e; }
+    expect(String(error)).not.toContain(marker);
+    expect(await app.exportJournal().text()).not.toContain(marker);
+    expect(app.store.get().events[0].result).toBe('failed');
+  });
+
+  it('exige un aperçu authentique, encore actuel et utilisable une seule fois', async () => {
+    const version = app.versionsOf('race-control')[1];
+    await expect(app.runRestore(version.id, () => {})).rejects.toThrow(/aperçu/);
+    const preview = await app.previewRestore(version.id);
+    app.store.get().apps['race-control'].payload.ajoutFictif = 'après aperçu';
+    await expect(app.runRestore(version.id, () => {}, undefined, preview)).rejects.toThrow(/aperçu/);
+    expect(app.store.get().apps['race-control'].payload.ajoutFictif).toBe('après aperçu');
+    await expect(app.runRestore(version.id, () => {}, undefined, preview)).rejects.toThrow(/aperçu/);
+  });
+
+  it('restaure une version après aperçu et laisse l’état précédent récupérable', async () => {
+    const version = app.versionsOf('race-control')[1], before = structuredClone(app.store.get().apps['race-control'].payload);
+    const preview = await app.previewRestore(version.id);
+    const result = await app.runRestore(version.id, () => {}, undefined, preview);
+    expect(app.store.get().apps['race-control'].payload).toEqual(preview.payload);
+    expect((await app.previewRestore(result.safetyVersionId)).payload).toEqual(before);
+    await expect(app.runRestore(version.id, () => {}, undefined, preview)).rejects.toThrow(/aperçu/);
+  });
+
+  it('rétablit fidèlement l’état précédent si aucune écriture concurrente ne suit l’application', async () => {
+    const version = app.versionsOf('race-control')[1], before = structuredClone(app.store.get().apps['race-control']);
+    const preview = await app.previewRestore(version.id);
+    await expect(app.runRestore(version.id, u => { if (u.index === 5 && u.state === 'done') throw new Error('Interruption fictive.'); }, undefined, preview)).rejects.toThrow();
+    expect(app.store.get().apps['race-control']).toEqual(before);
+    expect(app.store.get().events[0]).toMatchObject({ type: 'restore', result: 'failed' });
+  });
+
+  it('refuse une relecture trop grande avant de tenter le déchiffrement', async () => {
+    const version = app.versionsOf('race-control')[1];
+    vi.spyOn(app.drive, 'download').mockResolvedValue(new Uint8Array(10 * 1024 * 1024 + 50));
+    await expect(app.previewRestore(version.id)).rejects.toThrow(/Taille/);
+  });
+
+  it('le contrôle de sélection relit les octets, même avec une empreinte fournisseur inchangée', async () => {
+    const version = app.versionsOf('race-control')[0];
+    vi.spyOn(app.drive, 'download').mockResolvedValue(new Uint8Array([9]));
+    expect(await app.verifyVersions([version.id])).toEqual({ total: 1, mismatches: 1 });
+    expect(app.store.get().versions.find(v => v.id === version.id)?.verifiedAt).toBeUndefined();
+  });
+  it('une erreur de lecture du fichier importé reste expurgée et n’annonce aucun succès', async () => {
+    const file = { name: 'fixture.json', size: 2, text: async () => { throw new Error('DONNEE-FICTIVE-CONFIDENTIELLE'); } } as unknown as File;
+    await expect(app.importJson(file, app.FOLDER.archives)).rejects.not.toThrow(/DONNEE-FICTIVE/);
+    expect(app.store.get().events[0]).toMatchObject({ type: 'import', result: 'failed' });
+  });
 });

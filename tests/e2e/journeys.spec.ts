@@ -52,7 +52,7 @@ test.describe('Parcours critiques', () => {
     await expect(page.getByText(/Import refusé : JSON invalide/)).toBeVisible();
     await input.setInputFiles({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('bonjour') });
     await expect(page.getByText(/Seuls les fichiers \.json/)).toBeVisible();
-    await input.setInputFiles({ name: 'export-race.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ app: 'race-control', schema: 3, trajets: [] })) });
+    await input.setInputFiles({ name: 'export-race.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ app: 'race-control', schema: 3, revision: 1, trajets: [], pneus: [], reglages: {} })) });
     await expect(page.getByText('export-race.json importé et vérifié')).toBeVisible();
     await expect(page.getByRole('listitem').filter({ hasText: 'export-race.json' })).toBeVisible();
     await shot(page, testInfo, '05-import');

@@ -4,7 +4,9 @@
 // CacheStorage est partagé par toutes les applications d'une même origine GitHub Pages.
 // Ne jamais supprimer les caches Race Control ou les caches tiers.
 const CACHE_PREFIX = 'cv-shell-';
-const VERSION = `${CACHE_PREFIX}v2`;
+const VERSION = `${CACHE_PREFIX}v3`;
+const APP_PATH = new URL(self.registration.scope).pathname;
+const cached = (request) => caches.open(VERSION).then((cache) => cache.match(request));
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(VERSION).then((c) => c.addAll(['./', './index.html', './manifest.webmanifest', './icons/icon.svg'])));
@@ -22,32 +24,34 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   const url = new URL(req.url);
-  if (req.method !== 'GET' || url.origin !== self.location.origin) return;
+  if (req.method !== 'GET' || url.origin !== self.location.origin || !url.pathname.startsWith(APP_PATH)) return;
 
   // Navigation : réseau d'abord (toujours la dernière version), cache en secours hors ligne.
   if (req.mode === 'navigate') {
     event.respondWith(
       fetch(req)
         .then((res) => {
-          const copy = res.clone();
-          caches.open(VERSION).then((c) => c.put('./index.html', copy));
+          if (res.ok && res.headers.get('content-type')?.includes('text/html')) {
+            const copy = res.clone();
+            event.waitUntil(caches.open(VERSION).then((c) => c.put('./index.html', copy)));
+          }
           return res;
         })
-        .catch(() => caches.match('./index.html')),
+        .catch(() => cached('./index.html')),
     );
     return;
   }
 
   // Fichiers versionnés par Vite (nom avec empreinte) : cache d'abord.
-  if (url.pathname.includes('/assets/')) {
+  if (url.pathname.startsWith(APP_PATH + 'assets/')) {
     event.respondWith(
-      caches.match(req).then(
+      cached(req).then(
         (hit) =>
           hit ||
           fetch(req).then((res) => {
             if (res.ok) {
               const copy = res.clone();
-              caches.open(VERSION).then((c) => c.put(req, copy));
+              event.waitUntil(caches.open(VERSION).then((c) => c.put(req, copy)));
             }
             return res;
           }),

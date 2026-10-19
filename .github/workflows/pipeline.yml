@@ -30,6 +30,28 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Préparation temporaire de l’audit PR6 : aucun secret, aucune publication.
+  # Le verrou résolu est relu puis committé avant la validation finale ; ce job
+  # est retiré de la branche une fois le fichier récupéré.
+  prepare-audit-lock:
+    name: Préparation du verrou corrigé (PR6 uniquement)
+    if: github.event_name == 'pull_request' && github.event.pull_request.number == 6
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verrou-audit-pr6
+          path: package-lock.json
+          retention-days: 1
+
   verify:
     name: Vérification complète
     runs-on: ubuntu-latest

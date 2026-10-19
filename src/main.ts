@@ -271,8 +271,7 @@ boot()
     render();
     paintBanners(store.get());
   })
-  .catch((e) => {
-    console.error(e);
+  .catch(() => {
     const crypto = !!globalThis.crypto?.subtle;
     replace(
       viewEl,
@@ -280,8 +279,7 @@ boot()
         'div',
         { class: 'empty', role: 'alert' },
         h('h1', null, 'Ouverture impossible'),
-        h('p', null, crypto ? 'Le coffre n’a pas pu démarrer. Recharge la page ; si le problème persiste, le détail ci-dessous aide au diagnostic.' : 'Ce navigateur ne fournit pas les fonctions de chiffrement nécessaires (Web Crypto). Ouvre Control Vault dans Safari ou un navigateur récent, en HTTPS.'),
-        h('pre', { class: 'code boot-error' }, `${e?.name ?? 'Erreur'} : ${e?.message ?? String(e)}`),
+        h('p', null, crypto ? 'Le coffre de démonstration n’a pas pu démarrer. Recharge la page ; aucun succès de sauvegarde n’est confirmé.' : 'Ce navigateur ne fournit pas les fonctions de chiffrement nécessaires (Web Crypto). Ouvre Control Vault dans Safari ou un navigateur récent, en HTTPS.'),
       ),
     );
   });

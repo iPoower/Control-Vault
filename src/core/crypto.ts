@@ -3,7 +3,8 @@
 // Enveloppe d'un fichier .cvault :
 //   "CVLT" (4 octets) | version (1 octet = 1) | sel (16) | IV (12) | AES-256-GCM(ciphertext + tag)
 // Le sel n'est utile qu'avec une clé dérivée d'une phrase secrète (Phase 3) ; il est présent
-// dès maintenant pour que le format ne change pas.
+// dans le format v1 de démo. Il n'est PAS authentifié en v1 ; toute évolution
+// exige un nouveau format explicite, aucun changement silencieux du v1.
 
 const MAGIC = new Uint8Array([0x43, 0x56, 0x4c, 0x54]); // "CVLT"
 const FORMAT_VERSION = 1;
@@ -16,7 +17,7 @@ export const PBKDF2_ITERATIONS = 600_000;
 
 const subtle = () => globalThis.crypto.subtle;
 const enc = new TextEncoder();
-const dec = new TextDecoder();
+const dec = new TextDecoder('utf-8', { fatal: true });
 
 export function toHex(buf: ArrayBuffer | Uint8Array): string {
   const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
@@ -30,7 +31,7 @@ export async function sha256(data: Uint8Array | string): Promise<string> {
   return toHex(await subtle().digest('SHA-256', bytes as BufferSource));
 }
 
-/** Comparaison en temps constant de deux empreintes hexadécimales. */
+/** Comparaison sans arrêt au premier écart ; JavaScript ne garantit pas un temps constant. */
 export function sameHash(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let diff = 0;
@@ -75,7 +76,7 @@ export async function encrypt(key: CryptoKey, plaintext: Uint8Array | string, sa
 export class VaultFormatError extends Error {}
 
 export function readEnvelope(blob: Uint8Array): { salt: Uint8Array; iv: Uint8Array; cipher: Uint8Array } {
-  if (blob.length <= HEADER_LEN || !MAGIC.every((b, i) => blob[i] === b)) {
+  if (blob.length < HEADER_LEN + 16 || !MAGIC.every((b, i) => blob[i] === b)) {
     throw new VaultFormatError("Ce fichier n'est pas une sauvegarde Control Vault.");
   }
   if (blob[MAGIC.length] !== FORMAT_VERSION) {
@@ -94,7 +95,7 @@ export async function decrypt(key: CryptoKey, blob: Uint8Array): Promise<string>
     const plain = await subtle().decrypt({ name: 'AES-GCM', iv: iv as BufferSource }, key, cipher as BufferSource);
     return dec.decode(plain);
   } catch {
-    // GCM échoue si la clé est mauvaise OU si un seul octet a été altéré.
+    // GCM authentifie le chiffré et l'IV ; le sel du format v1 n'est pas en AAD.
     throw new VaultFormatError('Déchiffrement impossible : clé incorrecte ou fichier altéré.');
   }
 }
