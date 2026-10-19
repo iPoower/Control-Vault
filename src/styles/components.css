@@ -227,7 +227,9 @@ dialog.sheet.closing { animation: sheet-down 180ms var(--ease) forwards; }
   padding: var(--s2) var(--s2) var(--s2) var(--s5); flex: none;
 }
 .sheet-head h2 { flex: 1; min-width: 0; font-size: 1.125rem; }
-.sheet-body { overflow-y: auto; overscroll-behavior: contain; padding: var(--s2) var(--s5) var(--s5); flex: 1; }
+/* Une base automatique préserve la hauteur du contenu dans un dialog de hauteur
+   intrinsèque sous WebKit ; min-height:0 permet ensuite le défilement borné. */
+.sheet-body { overflow-y: auto; overscroll-behavior: contain; padding: var(--s2) var(--s5) var(--s5); flex: 1 1 auto; min-height: 0; }
 .sheet-foot {
   display: flex; gap: var(--s2); flex-wrap: wrap; flex: none;
   padding: var(--s3) var(--s5) calc(var(--s4) + var(--safe-bottom));

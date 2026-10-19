@@ -93,6 +93,9 @@ test.describe('Parcours critiques', () => {
     await expect(sheet.getByText('Rien n’a été écrit dans Drive.')).toHaveCount(0);
     await expect(sheet.getByText('Interrompu à cette étape')).toBeVisible();
     await expect(sheet.getByText('Sauvegarde terminée')).toHaveCount(0); // aucun faux succès
+    const failure = sheet.locator('.callout[data-health="failed"]');
+    await failure.scrollIntoViewIfNeeded();
+    await expect(failure).toBeInViewport({ ratio: 0.99 });
     await shot(page, testInfo, '08-envoi-interrompu');
     await sheet.getByRole('button', { name: 'Fermer', exact: true }).click();
 
@@ -115,6 +118,9 @@ test.describe('Parcours critiques', () => {
     await expect(sheet.getByText(/débriefs de trajet disparaîtraient/)).toBeVisible();
     const confirm = sheet.getByRole('button', { name: 'Restaurer cette version' });
     await expect(confirm).toBeDisabled();
+    const warning = sheet.locator('.callout[data-health="failed"]');
+    await warning.scrollIntoViewIfNeeded();
+    await expect(warning).toBeInViewport({ ratio: 0.99 });
     await shot(page, testInfo, '09-restauration-apercu');
     await sheet.getByText(/Je remplace l’état actuel/).click();
     await expect(confirm).toBeEnabled();
