@@ -189,6 +189,10 @@ export function computeGlobalStatus({ now, connectivity, apps, queue, events }: 
     level = 'attention';
     title = issues.length > 1 ? 'Vérification requise' : issues[0].title;
     detail = issues[0].detail;
+  } else if (segments.some(s => s.health === 'unknown')) {
+    level = 'unknown';
+    title = 'Vérification incomplète';
+    detail = 'Une source n’a pas encore été contrôlée. Aucun succès global n’est confirmé.';
   } else {
     level = 'ok';
     title = 'Tout est vérifié';

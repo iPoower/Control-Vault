@@ -189,4 +189,40 @@ describe('audit : interruptions, concurrence imbriquée et confidentialité', ()
     await expect(app.importJson(file, app.FOLDER.archives)).rejects.not.toThrow(/DONNEE-FICTIVE/);
     expect(app.store.get().events[0]).toMatchObject({ type: 'import', result: 'failed' });
   });
+
+  it('refuse une taille de catalogue incompatible avant tout téléchargement', async () => {
+    const version = app.versionsOf('race-control')[1];
+    app.store.set({ versions: app.store.get().versions.map(v => v.id === version.id ? { ...v, sizeBytes: 100 * 1024 * 1024 } : v) });
+    const download = vi.spyOn(app.drive, 'download');
+    await expect(app.previewRestore(version.id)).rejects.toThrow(/volumineuse/);
+    expect(download).not.toHaveBeenCalled();
+  });
+
+  it('refuse un chiffré corrompu même si le catalogue contient son nouveau hash', async () => {
+    const version = app.versionsOf('race-control')[1], file = app.drive.findByVersion(version.id)!;
+    const bytes = app.drive.bytesOf(file.id)!; bytes[bytes.length - 1] ^= 1;
+    const hash = await sha256(bytes), before = structuredClone(app.store.get().apps);
+    app.drive.seed(file, bytes, hash);
+    app.store.set({ versions: app.store.get().versions.map(v => v.id === version.id ? { ...v, sha256: hash } : v) });
+    await expect(app.previewRestore(version.id)).rejects.toThrow(/Déchiffrement impossible/);
+    expect(app.store.get().apps).toEqual(before);
+  });
+
+  it('arrête la restauration si la copie préalable n’est pas vérifiée', async () => {
+    const version = app.versionsOf('race-control')[1], preview = await app.previewRestore(version.id);
+    const before = structuredClone(app.store.get().apps);
+    vi.spyOn(app.drive, 'remoteSha256').mockResolvedValue('0'.repeat(64));
+    await expect(app.runRestore(version.id, () => {}, undefined, preview)).rejects.toThrow();
+    expect(app.store.get().apps).toEqual(before);
+    expect(app.store.get().events.some(e => e.type === 'restore' && e.result === 'success')).toBe(false);
+  });
+
+  it('conserve 120 sources fictives et leurs champs inconnus dans la sauvegarde et sa relecture', async () => {
+    const current = app.store.get().apps['race-control'];
+    const payload = { ...current.payload, revision: 123, trajets: Array.from({ length: 120 }, (_, i) => ({ id: `fiction-${i}`, at: i === 0 ? '2025-01-01' : '2026-01-01', inconnu: { source: i } })), champFutur: { integral: true } };
+    app.store.set({ apps: { ...app.store.get().apps, 'race-control': { ...current, payload } } });
+    const { version } = await app.runBackup('race-control', () => {});
+    expect(version.counts.trajets).toBe(120);
+    expect((await app.previewRestore(version.id)).payload).toEqual(payload);
+  });
 });

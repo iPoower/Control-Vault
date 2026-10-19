@@ -30,54 +30,6 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Préparation temporaire de l’audit PR6 : aucun secret, aucune publication.
-  # Le verrou résolu est relu puis committé avant la validation finale ; ce job
-  # est retiré de la branche une fois le fichier récupéré.
-  prepare-audit-lock:
-    name: Préparation du verrou corrigé (PR6 uniquement)
-    if: github.event_name == 'pull_request' && github.event.pull_request.number == 6
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Résolution propre, versions directes existantes conservées
-        run: |
-          node --input-type=module <<'NODE'
-          import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
-          import { join } from 'node:path';
-          import { spawnSync } from 'node:child_process';
-          const target = JSON.parse(readFileSync('package.json', 'utf8'));
-          const old = JSON.parse(readFileSync('package-lock.json', 'utf8'));
-          const pinned = structuredClone(target);
-          for (const group of ['dependencies', 'devDependencies']) {
-            for (const name of Object.keys(pinned[group])) {
-              if (name !== 'vitest') {
-                const version = old.packages['node_modules/' + name]?.version;
-                if (!version) throw new Error('Version directe manquante.');
-                pinned[group][name] = version;
-              }
-            }
-          }
-          const work = mkdtempSync(join(process.env.RUNNER_TEMP, 'cv-lock-'));
-          writeFileSync(join(work, 'package.json'), JSON.stringify(pinned));
-          const result = spawnSync('npx', ['--yes', 'npm@11.10.0', 'install', '--package-lock-only', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: work, stdio: 'inherit', timeout: 180000 });
-          if (result.status !== 0) process.exit(result.status || 1);
-          const lock = JSON.parse(readFileSync(join(work, 'package-lock.json'), 'utf8'));
-          lock.packages[''].dependencies = target.dependencies;
-          lock.packages[''].devDependencies = target.devDependencies;
-          writeFileSync('package-lock.json', JSON.stringify(lock, null, 2) + '\n');
-          NODE
-      - uses: actions/upload-artifact@v4
-        with:
-          name: verrou-audit-pr6
-          path: package-lock.json
-          retention-days: 1
-
   verify:
     name: Vérification complète
     runs-on: ubuntu-latest
@@ -94,8 +46,8 @@ jobs:
           cache: npm
       - name: Installation (verrouillée)
         run: npm ci
-      - name: Audit des dépendances de production
-        run: npm audit --omit=dev --audit-level=high
+      - name: Audit de toutes les dépendances (production et développement)
+        run: npm audit --audit-level=moderate
       - name: TypeScript
         run: npm run typecheck
       - name: Tests unitaires

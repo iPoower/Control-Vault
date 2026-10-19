@@ -166,9 +166,16 @@ function checkFileSize(bytes: Uint8Array, expected?: number) {
   }
 }
 
+function checkVersion(version: Version) {
+  if (!version.encrypted || !Number.isSafeInteger(version.sizeBytes) || version.sizeBytes < 49 || version.sizeBytes > MAX_IMPORT_BYTES + 49) {
+    throw new OperationError('Version de démonstration incompatible ou trop volumineuse : restauration refusée.', 0, false);
+  }
+}
+
 /** Un hash annoncé par le fournisseur ne prouve pas la relecture du fichier. */
 async function readVerified(fileId: string, expected: string, signal?: AbortSignal, expectedSize?: number): Promise<Uint8Array> {
   checkAbort(signal);
+  if (expectedSize !== undefined && (!Number.isSafeInteger(expectedSize) || expectedSize < 1 || expectedSize > MAX_IMPORT_BYTES + 49)) throw new OperationError('Taille de référence invalide.', 4, false);
   if (!/^[a-f0-9]{64}$/.test(expected)) throw new OperationError('Empreinte de référence invalide.', 4, false);
   const remote = await drive.remoteSha256(fileId, signal);
   checkAbort(signal);
@@ -314,6 +321,7 @@ const conflictError = () => new OperationError('L’état actuel ou la version a
 export async function previewRestore(versionId: string, signal?: AbortSignal): Promise<RestorePreview & { payload: Payload }> {
   const version = store.get().versions.find((v) => v.id === versionId);
   if (!version) throw new OperationError('Version introuvable.', 0, false);
+  checkVersion(version);
   const app = store.get().apps[version.appId];
   const validCurrent = validatePayload(app.payload, version.appId);
   if (!validCurrent.ok) throw new OperationError(validCurrent.error, 0, false);
@@ -348,6 +356,7 @@ export async function runRestore(versionId: string, onStep: (u: StepUpdate) => v
   const started = performance.now();
   const version = store.get().versions.find((v) => v.id === versionId);
   if (!version) throw new OperationError('Version introuvable.', 0, false);
+  checkVersion(version);
   const appId = version.appId;
   const before = store.get().apps[appId];
   const receipt = preview && restoreReceipts.get(preview);
@@ -446,27 +455,27 @@ export async function verifyVersions(ids: string[], onProgress: (done: number, t
   let mismatches = 0;
   let completed = 0;
   try {
-  for (const [i, snapshot] of versions.entries()) {
-    const { id, version, identity, fileId } = snapshot;
-    checkAbort(signal);
-    let verified = false;
-    try {
-      if (!version || !fileId) throw new OperationError('Fichier introuvable.', 0, false);
-      await readVerified(fileId, version.sha256, signal, version.sizeBytes);
-      verified = true;
-    } catch (e) {
-      if (e instanceof DOMException && e.name === 'AbortError') throw e;
+    for (const [i, snapshot] of versions.entries()) {
+      const { id, version, identity, fileId } = snapshot;
+      checkAbort(signal);
+      let verified = false;
+      try {
+        if (!version || !fileId) throw new OperationError('Fichier introuvable.', 0, false);
+        await readVerified(fileId, version.sha256, signal, version.sizeBytes);
+        verified = true;
+      } catch (e) {
+        if (e instanceof DOMException && e.name === 'AbortError') throw e;
+      }
+      const current = store.get().versions.find(v => v.id === id);
+      const unchanged = !!current && versionIdentity(current) === identity && drive.findByVersion(id)?.id === fileId;
+      if (!verified || !unchanged) mismatches++;
+      // Publier immédiatement le résultat connu ; une annulation ultérieure ne
+      // doit pas rétablir le statut d’un fichier dont la lecture a échoué.
+      if (unchanged) store.set({ versions: store.get().versions.map(v => v.id === id ? { ...v, verifiedAt: verified ? Date.now() : undefined } : v) });
+      completed++;
+      onProgress(i + 1, versions.length);
     }
-    const current = store.get().versions.find(v => v.id === id);
-    const unchanged = !!current && versionIdentity(current) === identity && drive.findByVersion(id)?.id === fileId;
-    if (!verified || !unchanged) mismatches++;
-    // Publier immédiatement le résultat connu ; une annulation ultérieure ne
-    // doit pas rétablir le statut d’un fichier dont la lecture a échoué.
-    if (unchanged) store.set({ versions: store.get().versions.map(v => v.id === id ? { ...v, verifiedAt: verified ? Date.now() : undefined } : v) });
-    completed++;
-    onProgress(i + 1, versions.length);
-  }
-  checkAbort(signal);
+    checkAbort(signal);
   } catch (e) {
     const cancelled = signal?.aborted || e instanceof DOMException && e.name === 'AbortError';
     pushEvent({ id: `e-vc-${Date.now()}`, at: Date.now(), source: 'vault', type: 'verify', result: cancelled ? 'cancelled' : 'failed', durationMs: performance.now() - started,
@@ -494,30 +503,30 @@ export async function importJson(file: File, parentId: string) {
   const started = performance.now();
   let appId: AppId | null = null;
   try {
-  const fileError = importFileError(file.name, file.size);
-  if (fileError) throw new OperationError(fileError, 0, false);
-  const text = await file.text();
-  const check = validateImport(file.name, file.size, text);
-  if (!check.ok) throw new OperationError(check.error, 0, false);
-  appId = check.appId;
-  const bytes = new TextEncoder().encode(text);
-  const local = await sha256(bytes);
-    const item = await drive.upload({ name: safeFileName(file.name), parentId, bytes, family: 'json' }, () => {}, undefined);
-    await readVerified(item.id, local, undefined, bytes.length);
-    store.set({ catalog: [...drive.items.values()] });
-    pushEvent({
-      id: `e-i-${Date.now()}`,
-      at: Date.now(),
-      source: check.appId ?? 'vault',
-      type: 'import',
-      result: 'success',
-      durationMs: performance.now() - started,
-      sizeBytes: bytes.length,
-      integrity: 'verified',
-      sha256: local,
-      resolved: true,
-    });
-    return { item, appId: check.appId };
+    const fileError = importFileError(file.name, file.size);
+    if (fileError) throw new OperationError(fileError, 0, false);
+    const text = await file.text();
+    const check = validateImport(file.name, file.size, text);
+    if (!check.ok) throw new OperationError(check.error, 0, false);
+    appId = check.appId;
+    const bytes = new TextEncoder().encode(text);
+    const local = await sha256(bytes);
+      const item = await drive.upload({ name: safeFileName(file.name), parentId, bytes, family: 'json' }, () => {}, undefined);
+      await readVerified(item.id, local, undefined, bytes.length);
+      store.set({ catalog: [...drive.items.values()] });
+      pushEvent({
+        id: `e-i-${Date.now()}`,
+        at: Date.now(),
+        source: check.appId ?? 'vault',
+        type: 'import',
+        result: 'success',
+        durationMs: performance.now() - started,
+        sizeBytes: bytes.length,
+        integrity: 'verified',
+        sha256: local,
+        resolved: true,
+      });
+      return { item, appId: check.appId };
   } catch (e) {
     const err = e instanceof OperationError ? e : new OperationError(explain(e).message, 0, explain(e).retryable);
     pushEvent({ id: `e-if-${Date.now()}`, at: Date.now(), source: appId ?? 'vault', type: 'import', result: 'failed',

@@ -8,7 +8,7 @@
 - **Dossiers Drive choisis par l'utilisateur.** En mode connecté, chaque dossier ou fichier est sélectionné explicitement dans le sélecteur Google. Aucun dossier n'est codé en dur.
 - **Permissions Google minimales** : `drive.file` uniquement. Jamais `drive` ni `drive.readonly`.
 - **Jetons Google en mémoire uniquement.** Jamais dans `localStorage`, IndexedDB, l'URL, les journaux ou GitHub. Aucun jeton de rafraîchissement côté navigateur.
-- **Chiffrement côté appareil** avant tout envoi. Aucune sauvegarde réelle et durable avant la validation de la Phase 3 (voir [docs/CRYPTO.md](docs/CRYPTO.md)).
+- **Chiffrement côté appareil** avant tout envoi réel. Race Control conserve exclusivement ses codes/clés et produit ses propres paquets chiffrés ; Control Vault les transportera sans déchiffrement selon [le contrat](docs/INTEGRATION.md). La Phase 3 de [CRYPTO.md](docs/CRYPTO.md) concerne les futurs fichiers propres à CV/génériques. Aucun de ces chemins réels n’est activé actuellement.
 - **Aucune écriture silencieuse** : pas d'écrasement, pas de suppression automatique.
 - **Hébergement isolé** : la version connectée sera servie depuis une origine Cloudflare dédiée, avec en-têtes de sécurité. `ipoower.github.io` reste une démonstration sans accès Google.
 - **Publication contrôlée** : seul l'artefact vérifié d'un commit de `main` peut être publié (voir [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)).
