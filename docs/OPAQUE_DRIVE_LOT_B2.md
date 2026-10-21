@@ -30,6 +30,8 @@ inter-origines, clé RC ou donnée déchiffrée n'est nécessaire au transport.
   Une réponse d'une ancienne session ne peut devenir preuve du nouveau compte.
 - OAuth dans l'en-tête Authorization seulement. Redirections refusées, URL de
   session limitée au endpoint Google attendu, jamais persistée ou journalisée.
+  Requêtes sans cache HTTP, cookie ni referrer : une copie en cache ne vaut pas
+  nouvelle preuve de relecture distante.
 - Réservation d'identifiant Google avant création. L'appelant doit persister
   l'association identifiant/empreinte/appareil avant l'envoi : cette file durable
   n'est pas implémentée ici. Un réessai avec cet ID relit une copie terminée ;

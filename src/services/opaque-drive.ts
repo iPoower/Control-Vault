@@ -40,18 +40,22 @@ export class OpaqueDrive {
   }
   disconnect(): void { this.#token = null; this.#until = 0; this.#epoch++; }
   private lease(): number { this.guard(); if (!this.#token || this.now() >= this.#until) { this.disconnect(); return fail('auth'); } return this.#epoch; }
-  private check(epoch: number): void { if (this.lease() !== epoch) return fail('auth'); }
+  private check(epoch: number, signal?: AbortSignal | null): void {
+    if (signal?.aborted) return fail('cancelled');
+    if (this.lease() !== epoch) return fail('auth');
+  }
   private async request(url: string, init: RequestInit, epoch: number, allowed: number[] = []): Promise<Response> {
-    this.check(epoch);
+    this.check(epoch, init.signal);
     let r: Response;
     const controller = new AbortController(), abort = () => controller.abort();
     if (init.signal?.aborted) abort();
     init.signal?.addEventListener('abort', abort, { once: true });
     const timer = setTimeout(abort, 30000);
-    try { r = await this.fetcher(url, { ...init, signal: controller.signal, redirect: 'error', headers: { ...init.headers, Authorization: 'Bearer ' + this.#token } }); }
+    try { r = await this.fetcher(url, { ...init, signal: controller.signal, redirect: 'error', cache: 'no-store', credentials: 'omit', referrerPolicy: 'no-referrer',
+      headers: { ...init.headers, Authorization: 'Bearer ' + this.#token } }); }
     catch { return fail(init.signal?.aborted ? 'cancelled' : 'unavailable'); }
     finally { clearTimeout(timer); init.signal?.removeEventListener('abort', abort); }
-    this.check(epoch); // Une réponse de l'ancien compte n'appartient pas à la nouvelle session.
+    this.check(epoch, init.signal); // Une réponse de l'ancien compte n'appartient pas à la nouvelle session.
     if (r.ok || allowed.includes(r.status)) return r;
     if (r.status === 401) { this.disconnect(); return fail('auth'); }
     if (r.status === 404) return fail('missing');
@@ -101,7 +105,7 @@ export class OpaqueDrive {
   }
   async reserveId(signal?: AbortSignal): Promise<string> {
     const epoch = this.lease(), v = await this.json(await this.request(API + '/files/generateIds?count=1&space=drive&type=files', { signal }, epoch), signal);
-    this.check(epoch);
+    this.check(epoch, signal);
     if (!Array.isArray(v.ids) || v.ids.length !== 1 || typeof v.ids[0] !== 'string') return fail('incomplete');
     return id(v.ids[0]); // L'appelant conserve cet identifiant avant tout envoi/réessai.
   }
@@ -129,7 +133,7 @@ export class OpaqueDrive {
       else if (typeof page.nextPageToken !== 'string' || !page.nextPageToken || page.nextPageToken.length > 4096 || tokens.has(page.nextPageToken)) return fail('incomplete');
       else { next = page.nextPageToken; tokens.add(next); }
     } while (next);
-    this.check(epoch); return [...versions.values()]; // Catalogue seulement, jamais une preuve d'intégrité.
+    this.check(epoch, signal); return [...versions.values()]; // Catalogue seulement, jamais une preuve d'intégrité.
   }
   private async verified(expected: RemotePacket, epoch: number, folder?: string, signal?: AbortSignal): Promise<{ packet: RacePacket; proof: ByteProof }> {
     id(expected.fileId);
@@ -142,7 +146,7 @@ export class OpaqueDrive {
     let packet: RacePacket;
     try { packet = await readRacePacket(bytes, expected.fileSha256); } catch { return fail('integrity'); }
     if (packet.info.cipherSha256 !== expected.cipherSha256 || packet.info.size !== expected.size) return fail('integrity');
-    this.check(epoch);
+    this.check(epoch, signal);
     return { packet, proof: Object.freeze({ ...remote, verifiedAt: this.now(), state: 'verified-bytes' }) };
   }
   async download(expected: RemotePacket, signal?: AbortSignal) { return this.verified(expected, this.lease(), undefined, signal); }

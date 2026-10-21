@@ -65,6 +65,7 @@ describe('fournisseur opaque, réseau entièrement fictif', () => {
     expect(proof.fileSha256).toBe(fixture.hash);
     expect(b.calls.some(c => new URL(c.url).searchParams.get('alt') === 'media')).toBe(true);
     expect(b.calls.every(c => !c.url.includes('fixture-token') && c.init.redirect === 'error')).toBe(true);
+    expect(b.calls.every(c => c.init.cache === 'no-store' && c.init.credentials === 'omit' && c.init.referrerPolicy === 'no-referrer')).toBe(true);
     expect(b.calls.every(c => new Headers(c.init.headers).get('Authorization') === 'Bearer fixture-token')).toBe(true);
     expect(b.files.size).toBe(1);
   });
