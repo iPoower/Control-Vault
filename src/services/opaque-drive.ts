@@ -51,7 +51,9 @@ export class OpaqueDrive {
     if (init.signal?.aborted) abort();
     init.signal?.addEventListener('abort', abort, { once: true });
     const timer = setTimeout(abort, 30000);
-    try { r = await this.fetcher(url, { ...init, signal: controller.signal, redirect: 'error', cache: 'no-store', credentials: 'omit', referrerPolicy: 'no-referrer',
+    // fetch natif est une API Window/Worker : ne pas lui donner l'instance Drive comme this.
+    const fetcher = this.fetcher;
+    try { r = await fetcher(url, { ...init, signal: controller.signal, redirect: 'error', cache: 'no-store', credentials: 'omit', referrerPolicy: 'no-referrer',
       headers: { ...init.headers, Authorization: 'Bearer ' + this.#token } }); }
     catch { return fail(init.signal?.aborted ? 'cancelled' : 'unavailable'); }
     finally { clearTimeout(timer); init.signal?.removeEventListener('abort', abort); }

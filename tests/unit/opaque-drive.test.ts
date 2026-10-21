@@ -69,6 +69,13 @@ describe('fournisseur opaque, réseau entièrement fictif', () => {
     expect(b.calls.every(c => new Headers(c.init.headers).get('Authorization') === 'Bearer fixture-token')).toBe(true);
     expect(b.files.size).toBe(1);
   });
+  it('appelle fetch sans lui imposer un receveur étranger à Window/Worker', async () => {
+    const network: typeof fetch = async function (this: unknown) {
+      if (this !== undefined) throw new TypeError('Receveur incompatible');
+      return json({ ids: [fileId] });
+    };
+    await expect(client(network).reserveId()).resolves.toBe(fileId);
+  });
   it('ne remplace pas une ancienne version lors d’un réessai après perte de réponse', async () => {
     const b = backend(), drive = client(b.fetcher), packet = await readRacePacket(fixture.bytes); b.loseReply();
     await expect(drive.upload(fileId, folder, packet)).rejects.toMatchObject({ code: 'unavailable' });
