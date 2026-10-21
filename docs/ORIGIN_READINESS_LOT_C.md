@@ -85,7 +85,7 @@ le COOP actuel. Voir aussi
 
 Les anciens tests fabriquaient leur chiffré dans un oracle indépendant. Ils
 utilisent désormais un instantané **exact** du codec RC de la PR #216, commit
-`89daca6f2b3f12b222ce2ac3396e41bc476cb5fc`. Le code est uniquement dans
+`7f7e36fbd3083c84ca9e6a62ee5c28185de94d65`. Le code est uniquement dans
 `tests/fixtures/race-owner/` ; il n’est ni importé ni exposé dans le bundle Vault.
 Les instantanés 61/120 sont produits par les vrais modules Backup/JournalArchive
 et le générateur RC, avec empreintes de provenance. Les données sont fictives :

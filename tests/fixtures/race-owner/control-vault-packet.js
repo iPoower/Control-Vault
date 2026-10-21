@@ -114,7 +114,7 @@ const ControlVaultPacket = (() => {
       if (!(input instanceof Uint8Array)) return fail('MALFORMED_FILE');
       if (input.byteLength > LIMITS.file) return fail('FILE_TOO_LARGE');
       const bytes = input.slice(), e = parse(bytes, LIMITS.depth);
-      if (object(e) && e.app === 'twrc-backup') return fail('LEGACY_REEXPORT_REQUIRED');
+      if (object(e) && !Object.prototype.hasOwnProperty.call(e, 'format') && e.app === 'twrc-backup') return fail('LEGACY_REEXPORT_REQUIRED');
       if (!object(e) || e.format !== FORMAT) return fail('UNSUPPORTED_FORMAT');
       if (e.schemaVersion !== 1) return fail('UNSUPPORTED_SCHEMA');
       if (!fields(e, ['format', 'schemaVersion', 'createdAt', 'appVersion', 'sha256', 'payload']) || !iso(e.createdAt) ||

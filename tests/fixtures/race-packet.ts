@@ -14,7 +14,7 @@ export async function packetFixture(count = 120) {
   if (![61, 120].includes(count)) throw new Error('Nombre de trajets fictifs inconnu');
   const snapshot = JSON.parse(readFileSync(`tests/fixtures/race-owner/business-${count}.json`, 'utf8'));
   const clear = JSON.stringify(snapshot.data);
-  if (snapshot.repository !== 'iPoower/iPoower' || snapshot.commit !== '89daca6f2b3f12b222ce2ac3396e41bc476cb5fc' ||
+  if (snapshot.repository !== 'iPoower/iPoower' || snapshot.commit !== '7f7e36fbd3083c84ca9e6a62ee5c28185de94d65' ||
     snapshot.codecSha256 !== digest(source) || snapshot.businessSha256 !== digest(clear) || snapshot.archiveRecords !== count + 2)
     throw new Error('Provenance de la fixture propriétaire invalide');
   function owner(): OwnerCodec {

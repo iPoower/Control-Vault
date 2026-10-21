@@ -7,6 +7,10 @@ const encode = (v: unknown) => new TextEncoder().encode(JSON.stringify(v));
 let fixture: Awaited<ReturnType<typeof packetFixture>>;
 beforeAll(async () => { fixture = await packetFixture(); });
 describe('paquet opaque réellement validé', () => {
+  it('une étiquette historique ne détourne jamais un paquet ayant un champ format', async () => {
+    await expect(readRacePacket(encode({ ...fixture.envelope, app: 'twrc-backup' }))).rejects.toMatchObject({ code: 'INVALID_ENVELOPE' });
+    await expect(readRacePacket(encode({ app: 'twrc-backup', format: 'future-format' }))).rejects.toMatchObject({ code: 'UNSUPPORTED_FORMAT' });
+  });
   it('garde les octets originaux, le hash complet et celui du chiffré, sans clé Vault', async () => {
     const packet = await readRacePacket(fixture.bytes, fixture.hash);
     expect(packet.copyBytes()).toEqual(fixture.bytes);
