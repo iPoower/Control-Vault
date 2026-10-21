@@ -1,5 +1,15 @@
 # Publication et protections — Control Vault
 
+## Constat de l’audit du 19 octobre 2026
+
+Le ruleset [24726355](https://github.com/iPoower/Control-Vault/rules/24726355) est actif : PR obligatoire, branche à jour, conversations résolues, `Vérification complète` requis, aucun bypass, suppression et force-push interdits. Le nombre d’approbations GitHub exigé est 0 ; le GO humain des changements sensibles reste une exigence de gouvernance.
+
+L’API disponible n’a pas permis de relire les protections réelles des environnements ni les variables/secrets Cloudflare. Les descriptions ci-dessous expriment donc la configuration cible, pas une preuve de son activation. Aucun hébergement Cloudflare opérationnel n’est établi par cet audit.
+
+La PR #6 ne déclenche aucune publication. Après une future fusion, le workflow existant déclenche GitHub Pages sur `push main` ; Cloudflare dépend aussi de la variable de projet et de l’environnement. Son étape de création automatique du projet devra être revue et autorisée avant toute utilisation. Ne pas renseigner ces paramètres ni fusionner en supposant que cela resterait sans publication. Aucun compte, jeton, domaine ou service n’est créé par cette PR.
+
+Le job temporaire ayant résolu le verrou npm corrigé a été retiré. Le pipeline final conserve un seul workflow et renforce l’audit à toutes les dépendances. Ses publications restent liées à l’artefact vérifié du même run.
+
 ## Principe
 
 **On publie exactement ce qui vient d'être vérifié, et seulement depuis `main`.**
@@ -34,7 +44,7 @@ push main ──► Vérification complète ──┬─► GitHub Pages     (d�
 ## Contrôles de « Vérification complète »
 
 1. `npm ci`, avec les versions verrouillées.
-2. `npm audit --omit=dev --audit-level=high`.
+2. `npm audit --audit-level=moderate` : production ET développement ; aucune exception silencieuse.
 3. TypeScript.
 4. Tests unitaires : état, chiffrement, différences, validation, contrôle de sécurité.
 5. Build de production.

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { canonical, diffPayload } from '../../src/core/diff';
 import { formatBytes, formatDay, formatDuration } from '../../src/core/format';
-import { safeFileName, validateImport, validatePayload } from '../../src/core/validate';
+import { safeFileName, validateImport, validatePayload, validateJsonText } from '../../src/core/validate';
 
 describe('différences avant restauration', () => {
   const cur = { app: 'race-control', schema: 3, trajets: [{ id: 'a', km: 1 }, { id: 'b', km: 2 }, { id: 'c', km: 3 }], reglages: { x: 1 } };
@@ -34,7 +34,8 @@ describe('contrôle des imports', () => {
     if (!r.ok) expect(r.error).toMatch(/^JSON invalide/);
   });
   it('reconnaît l’application', () => {
-    const r = validateImport('rc.json', 30, JSON.stringify({ app: 'race-control', schema: 3 }));
+    const text = JSON.stringify({ app: 'race-control', schema: 3, revision: 1, trajets: [], pneus: [], reglages: {} });
+    const r = validateImport('rc.json', new TextEncoder().encode(text).length, text);
     expect(r).toMatchObject({ ok: true, appId: 'race-control' });
   });
   it('une sauvegarde exige le bon « app » et un « schema »', () => {
@@ -42,9 +43,52 @@ describe('contrôle des imports', () => {
     expect(validatePayload({ app: 'race-control' }, 'race-control').ok).toBe(false);
     expect(validatePayload([], undefined).ok).toBe(false);
   });
+  it('refuse une version inconnue du payload de démonstration', () => {
+    expect(validatePayload({ app: 'race-control', schema: 999 }, 'race-control').ok).toBe(false);
+    expect(validatePayload({ app: 'race-control', schema: '3' }).ok).toBe(false);
+    expect(validatePayload({ app: 'reconversion-control', schema: 3 }).ok).toBe(false);
+  });
+  it('ne recopie aucun extrait du JSON malformé dans son erreur', () => {
+    const r = validateImport('fixture.json', 60, '{"marqueur":"contenu-fictif-a-ne-pas-afficher", "x": }');
+    expect(r).toEqual({ ok: false, error: 'JSON invalide : fichier refusé.' });
+  });
+  it('ne confond pas les paquets Race Control avec des imports JSON génériques vérifiés', () => {
+    for (const payload of [
+      { format: 'race-control-backup', schemaVersion: 1 },
+      { format: 'race-control-backup', schemaVersion: 999 },
+      { app: 'twrc-backup', v: 1 },
+      { app: 'twrc-backup', v: 2 },
+      { app: 'twrc', v: 1, settings: {} },
+      { app: 'twrc', v: 2, settings: {}, durable: {} },
+      { v: 2, kdf: 'PBKDF2-SHA256', s: 'fiction', i: 'fiction', c: 'fiction' },
+      { v: 3, kdf: 'PBKDF2-SHA256', s: 'fiction', i: 'fiction', c: 'fiction' },
+    ]) {
+      const text = JSON.stringify(payload);
+      const r = validateImport('fixture.json', new TextEncoder().encode(text).length, text);
+      expect(r.ok).toBe(false);
+    }
+  });
   it('nettoie les noms de fichiers', () => {
     expect(safeFileName('../a/b:c*.json')).toBe('..-a-b-c-.json');
     expect(safeFileName('   ')).toBe('fichier');
+  });
+  it('refuse un contenu connu incomplet et des identifiants dupliqués', () => {
+    expect(validatePayload({ app: 'race-control', schema: 3 }).ok).toBe(false);
+    expect(validatePayload({ app: 'race-control', schema: 3, revision: 1, pneus: [], reglages: {}, trajets: [{ id: 'a' }, { id: 'a' }] }).ok).toBe(false);
+  });
+  it('borne les octets UTF-8 réels et refuse une taille annoncée incohérente', () => {
+    expect(validateImport('fixture.json', 2, '{"fiction":true}').ok).toBe(false);
+    const text = JSON.stringify({ fiction: 'é'.repeat(6 * 1024 * 1024) });
+    expect(validateImport('fixture.json', 100, text).ok).toBe(false);
+  });
+  it('refuse une profondeur excessive et les clés dupliquées, même échappées', () => {
+    expect(validateJsonText('{"x":'.repeat(40) + '0' + '}'.repeat(40)).ok).toBe(false);
+    expect(validateJsonText('{"x":1,"\\u0078":2}').ok).toBe(false);
+    expect(validateJsonText('{"x":{"x":1},"y":"{,\\\"}"}').ok).toBe(true);
+  });
+  it('refuse les structures mémoire cycliques et les valeurs perdues à la sérialisation', () => {
+    const cyclic: Record<string, unknown> = {}; cyclic.self = cyclic;
+    for (const payload of [cyclic, { fiction: undefined }, { fiction: Number.NaN }, { fiction: BigInt(1) }]) expect(validatePayload(payload).ok).toBe(false);
   });
 });
 

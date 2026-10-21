@@ -46,8 +46,8 @@ jobs:
           cache: npm
       - name: Installation (verrouillée)
         run: npm ci
-      - name: Audit des dépendances de production
-        run: npm audit --omit=dev --audit-level=high
+      - name: Audit de toutes les dépendances (production et développement)
+        run: npm audit --audit-level=moderate
       - name: TypeScript
         run: npm run typecheck
       - name: Tests unitaires

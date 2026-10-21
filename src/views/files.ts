@@ -1,4 +1,4 @@
-import { drive, importJson, OperationError, ROOT_ID, store } from '../app';
+import { drive, importJson, OperationError, ROOT_ID, store, verifyVersions } from '../app';
 import { formatBytes, formatDateTime, formatRelative, shortHash } from '../core/format';
 import type { State } from '../core/store';
 import type { DriveItem } from '../core/types';
@@ -249,13 +249,12 @@ export function filesView(ctx: ViewContext): View {
           h('button', {
             class: 'btn btn-sm', type: 'button', disabled: !vaults.length || undefined,
             onclick: async () => {
-              let bad = 0;
-              for (const it of vaults) {
-                const v = store.get().versions.find((x) => x.id === it.versionId)!;
-                const remote = await drive.remoteSha256(it.id).catch(() => '');
-                if (remote !== v.sha256) bad++;
+              try {
+                const { mismatches: bad } = await verifyVersions(vaults.map(it => it.versionId!));
+                toast(bad ? `${bad} fichier(s) non vérifiés : lecture ou empreinte en échec` : `${vaults.length} sauvegarde${vaults.length > 1 ? 's' : ''} vérifiée${vaults.length > 1 ? 's' : ''}`, { kind: bad ? 'bad' : 'ok' });
+              } catch {
+                toast('Contrôle interrompu. Aucun succès global n’est confirmé.', { kind: 'bad' });
               }
-              toast(bad ? `${bad} fichier(s) ne correspondent pas à leur empreinte` : `${vaults.length} sauvegarde${vaults.length > 1 ? 's' : ''} vérifiée${vaults.length > 1 ? 's' : ''}`, { kind: bad ? 'bad' : 'ok' });
             },
           }, icon('fingerprint'), 'Vérifier'),
         ),

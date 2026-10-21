@@ -55,6 +55,12 @@ describe('pipeline de publication', () => {
     expect((verify.steps ?? []).some((s) => /deploy-pages/.test(s.uses ?? '') || /pages\s+deploy/.test(s.run ?? ''))).toBe(false);
   });
 
+  it('audite aussi les dépendances de développement, sans masquer les alertes', () => {
+    const audits = (pipeline.jobs.verify.steps ?? []).map(s => s.run ?? '').filter(s => /npm audit/.test(s));
+    expect(audits).toContain('npm audit --audit-level=moderate');
+    expect(audits.join('\n')).not.toMatch(/omit=dev|\|\|\s*true/);
+  });
+
   const deployJobs = Object.entries(pipeline.jobs).filter(([id, j]) => id !== 'verify' && publishes(j));
 
   it('il existe bien deux jobs de publication', () => {

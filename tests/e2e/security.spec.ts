@@ -3,6 +3,18 @@ import { expect, test } from '@playwright/test';
 import { open } from './helpers';
 
 test.describe('Sécurité', () => {
+  test('un échec de démarrage ne divulgue pas le message brut dans la page ou la console', async ({ page }) => {
+    const messages: string[] = [];
+    page.on('console', message => messages.push(message.text()));
+    await page.addInitScript(() => {
+      Object.defineProperty(crypto.subtle, 'generateKey', { value: () => Promise.reject(new Error('DONNEE-FICTIVE-CONFIDENTIELLE')) });
+    });
+    await page.goto('./');
+    await expect(page.getByRole('heading', { name: 'Ouverture impossible' })).toBeVisible();
+    expect(await page.locator('body').innerText()).not.toContain('DONNEE-FICTIVE-CONFIDENTIELLE');
+    expect(messages.join('\n')).not.toContain('DONNEE-FICTIVE-CONFIDENTIELLE');
+  });
+
   test('Isolation : deux origines distinctes ne partagent pas le stockage local', async ({ browser }) => {
     // 127.0.0.1 et 127.0.0.2 sont deux origines différentes, comme ipoower.github.io et un
     // sous-domaine Cloudflare dédié. Ce que l'une écrit, l'autre ne le voit pas.

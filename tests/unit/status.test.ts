@@ -24,6 +24,8 @@ describe('état global', () => {
   it('ne déclare jamais vérifié une source non contactée', () => {
     const s = computeGlobalStatus({ now, connectivity: { ...ok, supabase: 'unknown' }, apps: apps(now - DAY, now - DAY), queue: [], events: [] });
     expect(s.segments.find((x) => x.key === 'supabase')!.health).toBe('unknown');
+    expect(s.level).toBe('unknown');
+    expect(s.title).not.toBe('Tout est vérifié');
   });
 
   it('hors ligne : aucune source réseau n’est affirmée, la file d’attente est annoncée', () => {

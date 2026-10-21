@@ -52,7 +52,11 @@ test.describe('Parcours critiques', () => {
     await expect(page.getByText(/Import refusé : JSON invalide/)).toBeVisible();
     await input.setInputFiles({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('bonjour') });
     await expect(page.getByText(/Seuls les fichiers \.json/)).toBeVisible();
-    await input.setInputFiles({ name: 'export-race.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ app: 'race-control', schema: 3, trajets: [] })) });
+    await input.setInputFiles({ name: 'tronque.json', mimeType: 'application/json', buffer: Buffer.concat([Buffer.from('{"fiction":"'), Buffer.from([0xf0, 0x9f, 0x92]), Buffer.from('"}')]) });
+    await expect(page.getByText(/Import refusé : Encodage UTF-8 invalide/)).toBeVisible();
+    await input.setInputFiles({ name: 'incomplet.json', mimeType: 'application/json', buffer: Buffer.from('{"app":"race-control","schema":3}') });
+    await expect(page.getByText(/Import refusé : Contenu de démonstration incomplet/)).toBeVisible();
+    await input.setInputFiles({ name: 'export-race.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ app: 'race-control', schema: 3, revision: 1, trajets: [], pneus: [], reglages: {} })) });
     await expect(page.getByText('export-race.json importé et vérifié')).toBeVisible();
     await expect(page.getByRole('listitem').filter({ hasText: 'export-race.json' })).toBeVisible();
     await shot(page, testInfo, '05-import');
@@ -78,16 +82,20 @@ test.describe('Parcours critiques', () => {
     await shot(page, testInfo, '07-accueil-verifie');
   });
 
-  test('Envoi interrompu : rien n’est écrit, erreur expliquée, « Réessayer » fonctionne', async ({ page }, testInfo) => {
+  test('Envoi interrompu : aucun succès confirmé, erreur expliquée, « Réessayer » fonctionne', async ({ page }, testInfo) => {
     await open(page);
     await scenario(page, testInfo, 'Envoi interrompu');
     await go(page, 'Applications', testInfo);
     await page.locator('article.app-card').filter({ hasText: 'Race Control' }).getByRole('button', { name: 'Sauvegarder' }).click();
     const sheet = page.locator('dialog.sheet[open]');
     await expect(sheet.getByRole('heading', { name: 'Envoi interrompu — connexion perdue' })).toBeVisible({ timeout: 10_000 });
-    await expect(sheet.getByText('Rien n’a été écrit dans Drive.')).toBeVisible();
+    await expect(sheet.getByText('La sauvegarde n’est pas confirmée.')).toBeVisible();
+    await expect(sheet.getByText('Rien n’a été écrit dans Drive.')).toHaveCount(0);
     await expect(sheet.getByText('Interrompu à cette étape')).toBeVisible();
     await expect(sheet.getByText('Sauvegarde terminée')).toHaveCount(0); // aucun faux succès
+    const failure = sheet.locator('.outcome[data-health="failed"]');
+    await failure.scrollIntoViewIfNeeded();
+    await expect(failure).toBeInViewport({ ratio: 0.99 });
     await shot(page, testInfo, '08-envoi-interrompu');
     await sheet.getByRole('button', { name: 'Fermer', exact: true }).click();
 
@@ -110,6 +118,9 @@ test.describe('Parcours critiques', () => {
     await expect(sheet.getByText(/débriefs de trajet disparaîtraient/)).toBeVisible();
     const confirm = sheet.getByRole('button', { name: 'Restaurer cette version' });
     await expect(confirm).toBeDisabled();
+    const warning = sheet.locator('.callout[data-health="failed"]');
+    await warning.scrollIntoViewIfNeeded();
+    await expect(warning).toBeInViewport({ ratio: 0.99 });
     await shot(page, testInfo, '09-restauration-apercu');
     await sheet.getByText(/Je remplace l’état actuel/).click();
     await expect(confirm).toBeEnabled();

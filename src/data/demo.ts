@@ -1,7 +1,7 @@
 // Jeu de données de DÉMONSTRATION. Entièrement fictif, généré à chaque ouverture.
 // Aucune donnée réelle de Race Control ou de Reconversion Control n'est lue ici.
 
-import { encrypt, sha256 } from '../core/crypto';
+import { encrypt, sameHash, sha256 } from '../core/crypto';
 import { countCollections } from '../core/diff';
 import type { AppId, AppRecord, DriveItem, OpEvent, Payload, Version } from '../core/types';
 import type { DemoDrive } from '../services/demo-drive';
@@ -163,14 +163,18 @@ export async function seedDemo(drive: DemoDrive, _apps: Record<AppId, AppRecord>
       encrypted: true,
       kind: 'manual',
       counts: countCollections(payload),
-      verifiedAt: at + 4000,
     };
-    versions.push(v);
     drive.seed(
       { id: `file-${id}`, parentId: FOLDER[p.appId], name: versionFileName(p.appId, at), kind: 'file', family: 'vault', sizeBytes: blob.length, modifiedAt: at, versionId: id },
       blob,
       hash,
     );
+    // Relire la copie réellement détenue par le fournisseur mémoire. Une
+    // empreinte calculée avant seed() ne prouve pas la conservation des octets.
+    const reread = drive.bytesOf(`file-${id}`);
+    if (!reread || !sameHash(await sha256(reread), hash)) throw new Error('Contrôle initial de démonstration en échec.');
+    v.verifiedAt = Date.now();
+    versions.push(v);
     events.push({
       id: `e-${id}`,
       at,
@@ -201,7 +205,7 @@ export async function seedDemo(drive: DemoDrive, _apps: Record<AppId, AppRecord>
   // Un contrôle d'intégrité global.
   events.push({
     id: 'e-verify-1',
-    at: now - 3 * DAY,
+    at: Date.now(),
     source: 'vault',
     type: 'verify',
     result: 'success',

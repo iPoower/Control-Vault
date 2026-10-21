@@ -2,6 +2,23 @@
 
 > **Statut : étude, rien n'est activé.** Aujourd'hui, Control Vault ne chiffre que des données de démonstration avec une clé de session éphémère, perdue à la fermeture de l'onglet. **Aucune sauvegarde réelle et durable ne sera activée avant la validation complète de la Phase 3, avec revue humaine.**
 
+**Périmètre de cette étude : données propres à Control Vault et fichiers génériques.**
+Les paquets Race Control définis par [INTEGRATION.md](INTEGRATION.md) suivent un
+autre principe : leur chiffrement et leur authentification appartiennent à Race
+Control. Ils ne sont ni déchiffrés par Control Vault ni ré-enveloppés dans un
+`.cvault` avec sa clé de session. La Phase 3 ci-dessous n'est donc pas un prérequis
+pour transporter ces paquets opaques. Le choix Argon2id/DEK reste une proposition
+distincte ; il ne modifie pas les paramètres PBKDF2/GCM du contrat Race Control.
+Les objectifs de durée et de mémoire ci-dessous ne sont pas des mesures iPhone.
+
+## Garanties actuelles et limite du format v1
+
+La clé AES-256-GCM aléatoire est non extractible et uniquement en mémoire. Les IV sont neufs et aléatoires. Le lecteur refuse un en-tête inconnu, un tag trop court ou un clair non UTF-8. Les moteurs bornent la taille avant hash/déchiffrement et valident le JSON avant toute application.
+
+Le sel du v1 n’est ni utilisé avec cette clé ni inclus en AAD. Un test démontre qu’une modification de ce sel peut laisser le déchiffrement réussir : ne pas revendiquer une authentification de chaque octet du fichier. Le SHA-256 externe couvre tous les octets à condition que sa référence soit fiable. Recalculer ce hash après modification ne crée pas de preuve d’authenticité ; la corruption du chiffré reste refusée par GCM. `sameHash` n’offre aucune garantie de temps constant sous JavaScript/JIT.
+
+Aucun paramètre ni encodage du format v1 ou du contrat Race Control n’est changé. L’AAD du futur contrat et celle d’un futur `.cvault` sont des travaux distincts et non activés. PBKDF2 exporté est un utilitaire testé, pas un lecteur de paramètres KDF arbitraires importés.
+
 ## Le problème à résoudre
 
 La phrase secrète de l'utilisateur doit devenir une clé AES-256 sans être stockée nulle part. Si un fichier `.cvault` fuit (Drive compromis, partage par erreur), seule la difficulté de deviner la phrase protège son contenu. La fonction de dérivation (KDF) fixe le coût de chaque essai pour un attaquant.
@@ -19,14 +36,14 @@ La phrase secrète de l'utilisateur doit devenir une clé AES-256 sans être sto
 
 ## Contraintes de l'iPhone 11 Pro Max
 
-- Puce A13, 4 Go de RAM. Un onglet Safari dispose largement de 64 Mio pour un calcul ponctuel. Le risque se situe au-delà de plusieurs centaines de Mio, ou dans une extension iOS, plus limitée en mémoire.
+- Aucune capacité mémoire disponible ni durée de calcul n’est garantie sur l’appareil. Mesurer Safari et PWA séparément, sous charge et après veille ; aucun GPU puissant n’est requis ou supposé.
 - WebAssembly mono-thread : le temps de calcul dépend directement de la mémoire × nombre de passes.
 - Repère public : Bitwarden fixe par défaut Argon2id à 32 Mio, 6 passes, parallélisme 4. Il avertit au-delà de 64 Mio dans l'autoremplissage iOS, qui est une extension et non Safari.
 
 ## Recommandation
 
-1. **Argon2id**, avec des paramètres de départ **m = 64 Mio, t = 3, p = 1**. C'est plus de trois fois le minimum OWASP en mémoire. L'objectif est un déverrouillage d'environ 1 à 2 s sur l'iPhone 11 Pro Max.
-2. **Étalonnage sur l'appareil réel avant activation** : une page de mesure livrée avec la PR de Phase 3, que tu lances toi-même sur ton iPhone. Si le temps dépasse 2 s, on descend vers m = 46 Mio, t = 2. On ne descend jamais sous le minimum OWASP.
+1. **Argon2id**, avec des paramètres de départ **m = 64 Mio, t = 3, p = 1**. Ces valeurs sont des paramètres d’étude ; l’objectif de 1 à 2 s n’est pas une mesure iPhone.
+2. **Étalonnage sur l'appareil réel avant activation** : une page de mesure livrée avec la PR de Phase 3, que tu lances toi-même sur ton iPhone. Si le coût n’est pas acceptable, refaire la revue du modèle de menace et des paramètres ; aucun abaissement automatique ni activation sans validation.
 3. **Paramètres inscrits dans chaque fichier.** Le format v2 enregistre l'algorithme, la mémoire, les passes et le sel. On peut ainsi durcir les réglages plus tard sans rendre illisibles les anciennes sauvegardes.
 4. **Aucune dégradation silencieuse.** Si Argon2id ne peut pas tourner (mémoire, WebAssembly bloqué), l'application refuse de chiffrer et le dit. Elle ne bascule pas d'elle-même sur un algorithme plus faible.
 5. **PBKDF2 600 000 reste le plan de secours documenté**, à n'activer qu'après revue, si la bibliothèque Argon2id posait un problème de sécurité ou de compatibilité.
