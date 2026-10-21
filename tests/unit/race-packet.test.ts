@@ -12,7 +12,9 @@ describe('paquet opaque réellement validé', () => {
     expect(packet.copyBytes()).toEqual(fixture.bytes);
     expect(packet.info.cipherSha256).toBe(fixture.envelope.sha256);
     expect(await fixture.decrypt(packet.copyBytes())).toBe(fixture.clear);
-    const reordered = await readRacePacket(encode(fixture.envelope));
+    // Le producteur RC écrit maintenant un JSON compact : réindenter
+    // explicitement pour comparer deux fichiers distincts au même chiffré.
+    const reordered = await readRacePacket(new TextEncoder().encode(JSON.stringify(fixture.envelope, null, 2)));
     expect(reordered.info.cipherSha256).toBe(packet.info.cipherSha256);
     expect(reordered.info.fileSha256).not.toBe(packet.info.fileSha256);
   });
