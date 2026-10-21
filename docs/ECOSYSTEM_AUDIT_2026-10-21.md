@@ -24,6 +24,8 @@ Le contrat `docs/INTEGRATION.md` est identique dans les deux dépôts : 22 074 o
 | Moyenne | #213 : horodatages adoptés malgré un conflit de véhicule | Horodatage refusé conservé localement ; liste complète de véhicules non remplaçable ; identifiants ambigus refusés |
 | Moyenne | #213 : clés inconnues copiées automatiquement | Pas d'adoption automatique ; écart signalé pour adaptateur explicite |
 | Bloquante | Control Vault : fournisseur mémoire et clé de démonstration non récupérable après fermeture | Lot B requis ; ne pas présenter cette démo comme une sauvegarde durable |
+| Bloquante avant branchement | Fournisseur Phase 2 : `list()` ne retourne que la première page ; `remoteDigest()` préfère le checksum déclaré plutôt que relire les octets | Parcourir toute la pagination, refuser une recherche incomplète et toujours télécharger les octets pour la preuve de sauvegarde ; branche laissée inchangée |
+| Bloquante avant branchement | `importJson()` utilise le fournisseur de démonstration pour envoyer les octets JSON bruts ; un remplacement global par Drive réel exposerait ce chemin | Auditer chaque appel upload et refuser le clair dans le fournisseur commun ; conserver la démo séparée jusqu’au chiffrement durable |
 
 Le journal cumulatif de Race Control est déjà présent sur main depuis les travaux précédents. B01/B02/B03 ne sont plus des mécanismes de suppression dans cette archive : aucune limite de 60, aucune purge à 90 jours, toutes les versions complètes restent archivées. La projection peut choisir un retour pour l'affichage sans effacer les sources. Cela ne valide pas encore le passage croisé par Control Vault ni les appareils physiques.
 
