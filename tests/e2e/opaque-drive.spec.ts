@@ -77,13 +77,17 @@ async function independentlyDecrypt(bytes: number[]) {
   return new TextDecoder('utf-8', { fatal: true }).decode(clear);
 }
 
-test('deux profils isolés : versions aller-retour, relecture et corruption distante', async ({ browser }) => {
+test('deux profils isolés : versions aller-retour, relecture et corruption distante', async ({ browser }, info) => {
   test.setTimeout(45000);
   const remote = remoteFixture(), first = await packetFixture(120), second = await packetFixture(61);
   const profiles: BrowserContext[] = [];
   async function device() {
-    const context = await browser.newContext({ serviceWorkers: 'block' }); profiles.push(context); await remote.route(context);
-    const page = await context.newPage(); await page.goto(origin); return page;
+    const context = await browser.newContext({ serviceWorkers: 'block', viewport: info.project.use.viewport,
+      deviceScaleFactor: info.project.use.deviceScaleFactor, hasTouch: info.project.use.hasTouch,
+      isMobile: info.project.use.isMobile, userAgent: info.project.use.userAgent });
+    profiles.push(context); await remote.route(context);
+    const page = await context.newPage(); await page.goto(origin);
+    expect(page.viewportSize()).toEqual(info.project.use.viewport); return page;
   }
   try {
     let pc = await device();
