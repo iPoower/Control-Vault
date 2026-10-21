@@ -1,25 +1,34 @@
-// Adaptateur de test côté propriétaire Race Control. Jamais importé par Control Vault.
+// Propriétaire de test isolé dans Node, jamais inclus dans le navigateur Vault.
+// Codec exact de Race Control #216, instantanés métier issus de ses vrais modules.
 import { webcrypto, createHash } from 'node:crypto';
-const enc = new TextEncoder();
+import { readFileSync } from 'node:fs';
+import { createContext, runInContext } from 'node:vm';
+const source = readFileSync('tests/fixtures/race-owner/control-vault-packet.js', 'utf8');
+const digest = (bytes: string | Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 export const fixtureCode = 'synthetic-recovery-passphrase';
-const digest = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
+interface OwnerCodec {
+  seal(data: unknown, code: string, version: string, at: string): Promise<Uint8Array>;
+  open(bytes: Uint8Array, code: string, version: string, reference?: string): Promise<unknown>;
+}
 export async function packetFixture(count = 120) {
-  const rows = Array.from({ length: count }, (_, i) => ({ key: `fixture-${i}`, age: i === 0 ? 365 : 91, feedback: { id: `answer-${i}`, conditions: ['wet'] } }));
-  rows.push({ ...rows[0], feedback: { id: 'second-answer', conditions: ['fog'] } });
-  const clear = JSON.stringify({ app: 'twrc', v: 2, settings: { cars: [] }, archive: rows });
-  const salt = webcrypto.getRandomValues(new Uint8Array(16)), iv = webcrypto.getRandomValues(new Uint8Array(12));
-  const s = Buffer.from(salt).toString('base64'), i = Buffer.from(iv).toString('base64');
-  const metadata = { format: 'race-control-backup', schemaVersion: 1, createdAt: '2026-10-21T10:00:00.000Z', appVersion: 'prod-156' };
-  const aad = enc.encode(JSON.stringify([metadata.format, 1, metadata.createdAt, metadata.appVersion, 'AES-256-GCM', 'PBKDF2-SHA256', 600000, s, i]));
-  const material = await webcrypto.subtle.importKey('raw', enc.encode(fixtureCode), 'PBKDF2', false, ['deriveKey']);
-  const key = await webcrypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 600000, hash: 'SHA-256' }, material, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
-  const c = new Uint8Array(await webcrypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: aad }, key, enc.encode(clear)));
-  const envelope = { ...metadata, sha256: digest(c), payload: { alg: 'AES-256-GCM', kdf: 'PBKDF2-SHA256', it: 600000, s, i, c: Buffer.from(c).toString('base64') } };
-  const bytes = enc.encode(JSON.stringify(envelope, null, 2));
-  return { envelope, bytes, clear, hash: digest(bytes), decrypt: async (restored: Uint8Array) => {
-    const e = JSON.parse(new TextDecoder().decode(restored));
-    const aad = enc.encode(JSON.stringify([e.format, e.schemaVersion, e.createdAt, e.appVersion, e.payload.alg, e.payload.kdf, e.payload.it, e.payload.s, e.payload.i]));
-    const out = await webcrypto.subtle.decrypt({ name: 'AES-GCM', iv: Buffer.from(e.payload.i, 'base64'), additionalData: aad }, key, Buffer.from(e.payload.c, 'base64'));
-    return new TextDecoder('utf-8', { fatal: true }).decode(out);
+  if (![61, 120].includes(count)) throw new Error('Nombre de trajets fictifs inconnu');
+  const snapshot = JSON.parse(readFileSync(`tests/fixtures/race-owner/business-${count}.json`, 'utf8'));
+  const clear = JSON.stringify(snapshot.data);
+  if (snapshot.repository !== 'iPoower/iPoower' || snapshot.commit !== '7f7e36fbd3083c84ca9e6a62ee5c28185de94d65' ||
+    snapshot.codecSha256 !== digest(source) || snapshot.businessSha256 !== digest(clear) || snapshot.archiveRecords !== count + 2)
+    throw new Error('Provenance de la fixture propriétaire invalide');
+  function owner(): OwnerCodec {
+    // Les objets JSON ont le même prototype que les valeurs du validateur de test.
+    const context = { Date, JSON, Math, Number, Object, Array, RegExp, Set, Map, String, Uint8Array, TextEncoder, TextDecoder,
+      atob, btoa, crypto: webcrypto, validateBusiness: (data: unknown) => digest(JSON.stringify(data)) === snapshot.businessSha256 };
+    createContext(context);
+    return runInContext(source + ';ControlVaultPacket.create({validateBusiness});', context) as OwnerCodec;
+  }
+  const bytes = await owner().seal(snapshot.data, fixtureCode, 'prod-156', '2026-10-21T10:00:00.000Z');
+  const envelope = JSON.parse(new TextDecoder().decode(bytes));
+  return { envelope, bytes, clear, hash: digest(bytes), snapshot, decrypt: async (restored: Uint8Array) => {
+    // Nouveau propriétaire et nouvelle dérivation après fermeture de Vault :
+    // aucune clé éphémère du producteur ni session Vault conservée.
+    return JSON.stringify(await owner().open(restored, fixtureCode, 'prod-156', digest(bytes)));
   } };
 }

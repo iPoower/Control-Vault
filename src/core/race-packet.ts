@@ -80,7 +80,7 @@ export type RacePacket = Packet;
 export async function readRacePacket(input: Uint8Array, referenceHash?: string): Promise<RacePacket> {
   if (input.byteLength > PACKET_LIMITS.file) return fail('FILE_TOO_LARGE');
   const bytes = input.slice(), v = strictJson(bytes);
-  if (object(v) && v.app === 'twrc-backup') return fail('LEGACY_REEXPORT_REQUIRED');
+  if (object(v) && !Object.hasOwn(v, 'format') && v.app === 'twrc-backup') return fail('LEGACY_REEXPORT_REQUIRED');
   if (!object(v) || v.format !== 'race-control-backup') return fail('UNSUPPORTED_FORMAT');
   if (v.schemaVersion !== 1) return fail('UNSUPPORTED_SCHEMA');
   if (!fields(v, ['format', 'schemaVersion', 'createdAt', 'appVersion', 'sha256', 'payload']) ||

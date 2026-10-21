@@ -7,12 +7,18 @@ const encode = (v: unknown) => new TextEncoder().encode(JSON.stringify(v));
 let fixture: Awaited<ReturnType<typeof packetFixture>>;
 beforeAll(async () => { fixture = await packetFixture(); });
 describe('paquet opaque réellement validé', () => {
+  it('une étiquette historique ne détourne jamais un paquet ayant un champ format', async () => {
+    await expect(readRacePacket(encode({ ...fixture.envelope, app: 'twrc-backup' }))).rejects.toMatchObject({ code: 'INVALID_ENVELOPE' });
+    await expect(readRacePacket(encode({ app: 'twrc-backup', format: 'future-format' }))).rejects.toMatchObject({ code: 'UNSUPPORTED_FORMAT' });
+  });
   it('garde les octets originaux, le hash complet et celui du chiffré, sans clé Vault', async () => {
     const packet = await readRacePacket(fixture.bytes, fixture.hash);
     expect(packet.copyBytes()).toEqual(fixture.bytes);
     expect(packet.info.cipherSha256).toBe(fixture.envelope.sha256);
     expect(await fixture.decrypt(packet.copyBytes())).toBe(fixture.clear);
-    const reordered = await readRacePacket(encode(fixture.envelope));
+    // Le producteur RC écrit maintenant un JSON compact : réindenter
+    // explicitement pour comparer deux fichiers distincts au même chiffré.
+    const reordered = await readRacePacket(new TextEncoder().encode(JSON.stringify(fixture.envelope, null, 2)));
     expect(reordered.info.cipherSha256).toBe(packet.info.cipherSha256);
     expect(reordered.info.fileSha256).not.toBe(packet.info.fileSha256);
   });
