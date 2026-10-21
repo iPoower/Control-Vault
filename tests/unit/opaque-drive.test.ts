@@ -123,6 +123,7 @@ describe('fournisseur opaque, réseau entièrement fictif', () => {
     await expect(drive.reserveId()).rejects.toMatchObject({ code: 'auth' }); expect(b.calls).toHaveLength(0);
     expect(JSON.stringify(drive)).not.toContain('fixture-token');
     expect(() => drive.connect('fixture-token', 7200, [DRIVE_FILE_SCOPE])).toThrow('auth');
+    expect(() => drive.connect('x' + '='.repeat(8192), 60, [DRIVE_FILE_SCOPE])).toThrow('auth');
     expect(() => drive.connect('fixture-token', 60, ['https://www.googleapis.com/auth/drive'])).toThrow('auth');
   });
   it('déconnexion pendant une requête : la réponse tardive ne produit pas de preuve', async () => {
@@ -163,10 +164,15 @@ describe('fournisseur opaque, réseau entièrement fictif', () => {
   it('borne les réponses sans Content-Length et refuse une réponse tronquée', async () => {
     for (const response of [
       new Response('x'.repeat(1024 * 1024 + 1)),
-      new Response(JSON.stringify({ ids: [fileId] }), { headers: { 'Content-Length': '10000' } }),
+      new Response('{"ids":["truncated', { headers: { 'Content-Length': '10000' } }),
     ]) {
       await expect(client(async () => response).reserveId()).rejects.toBeInstanceOf(Error);
     }
+  });
+  it('une réponse décompressée par fetch est bornée sur ses octets décodés', async () => {
+    // CORS peut masquer Content-Encoding ; la longueur HTTP reste celle du corps compressé.
+    const response = new Response(JSON.stringify({ ids: [fileId] }), { headers: { 'Content-Length': '12' } });
+    await expect(client(async () => response).reserveId()).resolves.toBe(fileId);
   });
   it('expire aussi pendant une vérification et borne l’attente du corps', async () => {
     let now = 100000;

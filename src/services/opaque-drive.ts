@@ -34,7 +34,7 @@ export class OpaqueDrive {
   }
   connect(token: string, expiresIn: number, granted: readonly string[]): void {
     this.guard(); this.disconnect();
-    if (token.trim() !== token || !/^[A-Za-z0-9._~+\/-]{1,8192}=*$/.test(token) || !Number.isFinite(expiresIn) || expiresIn <= 30 || expiresIn > 3600 ||
+    if (token.length > 8192 || token.trim() !== token || !/^[A-Za-z0-9._~+\/-]{1,8192}=*$/.test(token) || !Number.isFinite(expiresIn) || expiresIn <= 30 || expiresIn > 3600 ||
       granted.length !== 1 || granted[0] !== DRIVE_FILE_SCOPE) return fail('auth');
     this.#token = token; this.#until = this.now() + expiresIn * 1000 - 30000;
   }
@@ -71,7 +71,9 @@ export class OpaqueDrive {
   }
   private async bytes(r: Response, max: number, signal?: AbortSignal): Promise<Uint8Array> {
     const announced = r.headers.get('Content-Length');
-    if (announced !== null && (!/^\d+$/.test(announced) || Number(announced) > max)) return fail('integrity');
+    if (announced !== null && (!/^\d+$/.test(announced) || Number(announced) > max)) {
+      void r.body?.cancel().catch(() => {}); return fail('integrity');
+    }
     const reader = r.body?.getReader(); if (!reader) return fail('incomplete');
     const chunks: Uint8Array[] = []; let size = 0;
     try {
@@ -89,12 +91,14 @@ export class OpaqueDrive {
         })]).finally(() => { clearTimeout(timer); if (abort) signal?.removeEventListener('abort', abort); });
         if (part.done) break;
         size += part.value.length;
-        if (size > max) { await reader.cancel(); return fail('integrity'); }
+        if (size > max) { void reader.cancel().catch(() => {}); return fail('integrity'); }
         chunks.push(part.value);
       }
     } catch (e) { if (e instanceof OpaqueDriveError) throw e; return fail('unavailable'); }
     if (signal?.aborted) return fail('cancelled');
-    if (announced !== null && Number(announced) !== size) return fail('incomplete');
+    // fetch peut décompresser le corps ; Content-Length décrit alors les octets
+    // encodés et Content-Encoding peut être masqué par CORS. La borne porte sur
+    // les octets réellement lus, puis le paquet est vérifié contre sa taille/hash.
     const bytes = new Uint8Array(size); let at = 0;
     for (const chunk of chunks) { bytes.set(chunk, at); at += chunk.length; }
     return bytes;
