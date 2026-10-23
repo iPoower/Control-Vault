@@ -77,7 +77,7 @@ test('application complète, Google simulé : confirmation compte, dossier dédi
     await virgin.route('https://race.example.com/**', route => {
       const p = new URL(route.request().url()).pathname;
       return p === '/owner.js'
-        ? route.fulfill({contentType: 'text/javascript', body: ownerSource + '\\nwindow.rcOwner=ControlVaultPacket;'})
+        ? route.fulfill({contentType: 'text/javascript', body: ownerSource + '\nwindow.rcOwner=ControlVaultPacket;'})
         : route.fulfill({contentType: 'text/html', body: '<!doctype html><meta charset="utf-8"><script src="/owner.js"></script><body>Virgin synthetic recovery</body>'});
     });
     const newDevice = await virgin.newPage();
