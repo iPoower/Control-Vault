@@ -51,7 +51,7 @@ function remoteFixture() {
         files.set(id, { meta: { ...meta, size: String(bytes.length), trashed: false }, bytes }); pending.delete(id);
         await json({ id }); return;
       }
-      if (key === folder) { await json({ id: folder, mimeType: 'application/vnd.google-apps.folder', capabilities: { canAddChildren: true } }); return; }
+      if (key === folder) { await json({ id: folder, mimeType: 'application/vnd.google-apps.folder', trashed: false, ownedByMe: true, appProperties: { cv_contract: 'rc-folder-v1' }, capabilities: { canAddChildren: true } }); return; }
       if (u.pathname === '/drive/v3/files') { await json({ incompleteSearch: false, files: [...files.values()].map(x => x.meta) }); return; }
       const entry = files.get(key);
       if (!entry) { await json({}, 404); return; }
