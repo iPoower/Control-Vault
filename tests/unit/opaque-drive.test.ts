@@ -35,7 +35,7 @@ function backend() {
       if (loseReply) throw new TypeError('Panne fictive après écriture');
       return json({ id });
     }
-    if (key === folder) return json({ id: folder, mimeType: 'application/vnd.google-apps.folder', capabilities: { canAddChildren: true } });
+    if (key === folder) return json({ id: folder, mimeType: 'application/vnd.google-apps.folder', trashed: false, ownedByMe: true, appProperties: { cv_contract: 'rc-folder-v1' }, capabilities: { canAddChildren: true } });
     if (u.pathname === '/drive/v3/files') return json({ incompleteSearch: false, files: [...files.values()].map(f => f.meta) });
     const file = files.get(key); if (!file) return json({}, 404);
     if (u.searchParams.get('alt') === 'media') {
@@ -290,15 +290,15 @@ describe('fournisseur opaque, réseau entièrement fictif', () => {
     await expect(drive.reserveId(aborted.signal)).rejects.toMatchObject({ code: 'cancelled' });
   });
   it('énumère toutes les pages, en gardant les versions non vérifiées', async () => {
-    const meta = (n: number) => ({ id: 'fixture-' + n, size: String(fixture.bytes.length), appProperties: { cv_contract: 'rc-v1', cv_file: fixture.hash, cv_cipher: fixture.envelope.sha256 } });
+    const meta = (n: number) => ({ id: 'fixture-' + n, parents: [folder], size: String(fixture.bytes.length), appProperties: { cv_contract: 'rc-v1', cv_file: fixture.hash, cv_cipher: fixture.envelope.sha256 } });
     const calls: string[] = [];
-    const drive = client(async input => { calls.push(String(input)); return json({ incompleteSearch: false, files: Array.from({ length: 100 }, (_, i) => meta(i + (calls.length - 1) * 100)), ...(calls.length === 1 ? { nextPageToken: 'next-fixture' } : {}) }); });
+    const drive = client(async input => { if(new URL(String(input)).pathname.endsWith('/'+folder)) return json({id:folder,mimeType:'application/vnd.google-apps.folder',trashed:false,ownedByMe:true,appProperties:{cv_contract:'rc-folder-v1'},capabilities:{canAddChildren:true}}); calls.push(String(input)); return json({ incompleteSearch: false, files: Array.from({ length: 100 }, (_, i) => meta(i + (calls.length - 1) * 100)), ...(calls.length === 1 ? { nextPageToken: 'next-fixture' } : {}) }); });
     const list = await drive.list(folder); expect(list).toHaveLength(200); expect(list.every(v => v.state === 'unverified')).toBe(true);
     expect(new URL(calls[1]).searchParams.get('pageToken')).toBe('next-fixture');
   });
   it('recherche incomplète et boucle de pagination ne donnent jamais un catalogue complet', async () => {
     for (const page of [{ incompleteSearch: true, files: [] }, { incompleteSearch: false, files: [], nextPageToken: 'again' }]) {
-      const drive = client(async () => json(page)); await expect(drive.list(folder)).rejects.toMatchObject({ code: 'incomplete' });
+      const drive = client(async input => new URL(String(input)).pathname.endsWith('/'+folder) ? json({id:folder,mimeType:'application/vnd.google-apps.folder',trashed:false,ownedByMe:true,appProperties:{cv_contract:'rc-folder-v1'},capabilities:{canAddChildren:true}}) : json(page)); await expect(drive.list(folder)).rejects.toMatchObject({ code: 'incomplete' });
     }
   });
 });
