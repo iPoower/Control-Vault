@@ -32,8 +32,13 @@ concurrency:
 jobs:
   verify:
     name: Vérification complète
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
+    # Même version que package-lock.json : navigateurs et bibliothèques déjà présents.
+    # Évite l'installation apt des dépendances navigateur pendant chaque validation.
+    container:
+      image: mcr.microsoft.com/playwright:v1.56.1-noble
+      options: --ipc=host
     env:
       BUILD_SHA: ${{ github.sha }}
     steps:
@@ -56,8 +61,18 @@ jobs:
         run: npm run build
       - name: Contrôle de sécurité (secrets, source maps, identifiants, CSP, en-têtes)
         run: node scripts/security-check.ts dist
-      - name: Navigateurs Playwright
-        run: npx playwright install --with-deps chromium webkit
+      - name: Navigateurs Playwright préinstallés
+        timeout-minutes: 2
+        run: |
+          node --input-type=module <<'NODE'
+          import { access } from 'node:fs/promises';
+          import { constants } from 'node:fs';
+          import { chromium, webkit } from '@playwright/test';
+          for (const browser of [chromium, webkit]) {
+            await access(browser.executablePath(), constants.X_OK);
+            console.log(`Navigateur ${browser.name()} présent dans l'image.`);
+          }
+          NODE
       - name: Parcours, sécurité et accessibilité (Chromium + WebKit)
         run: npm run test:e2e
         env:
