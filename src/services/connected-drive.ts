@@ -123,8 +123,29 @@ export class ConnectedDrive {
     await this.action(async epoch => {
       const { provider, folder } = this.selected(); const back = await provider.download(ref, undefined, folder); this.check(epoch);
       await this.archive.save(back.packet); this.check(epoch);
+      // The archive and its transport receipt are separate guarantees. Serialize the
+      // receipt read/modify/write with uploads under the existing outbox lock.
+      let receipts: ByteProof[] = [];
+      await this.locked(async () => {
+        const previous = await this.durable.read() || { v: 1 as const, job: null, receipts: [] };
+        this.check(epoch);
+        if (previous.v !== 1 || !Array.isArray(previous.receipts)) throw new Error('stockage');
+        const updated: Durable = {
+          ...previous,
+          receipts: [...previous.receipts.filter(p => p.fileId !== back.proof.fileId), back.proof]
+        };
+        await this.durable.write(updated); this.check(epoch);
+        const confirmed = await this.durable.read(); this.check(epoch);
+        const sameProof = (p: ByteProof) => p.fileId === back.proof.fileId &&
+          p.fileSha256 === back.proof.fileSha256 && p.cipherSha256 === back.proof.cipherSha256 &&
+          p.size === back.proof.size && p.verifiedAt === back.proof.verifiedAt;
+        if (!confirmed || confirmed.v !== 1 || !Array.isArray(confirmed.receipts) ||
+            !confirmed.receipts.some(sameProof) || JSON.stringify(confirmed.job) !== JSON.stringify(previous.job))
+          throw new Error('stockage');
+        receipts = confirmed.receipts;
+      });
       bytes = back.packet.copyBytes();
-      this.change({ phase: 'VERIFIED_BYTES', lastOperationAt: Date.now(), receipts: [...this.state.receipts.filter(p => p.fileId !== ref.fileId), back.proof], message: 'Octets vérifiés et copie chiffrée gardée sur cet appareil. Ouvre ce fichier dans Race Control pour le déchiffrer.' });
+      this.change({ phase: 'VERIFIED_BYTES', lastOperationAt: Date.now(), receipts, message: 'Octets vérifiés et copie chiffrée gardée sur cet appareil. Ouvre ce fichier dans Race Control pour le déchiffrer.' });
     });
     return bytes;
   }

@@ -1,12 +1,14 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { fixtureCode } from '../fixtures/race-packet';
 import { resolve } from 'node:path';
 import { packetFixture } from '../fixtures/race-packet';
 const origin = 'https://vault.example.com';
 const scope = 'https://www.googleapis.com/auth/drive.file';
 const config = { approved: true, clientId: ['123456', 'fake.apps.googleusercontent.com'].join('-'), apiKey: 'AIza' + 'a'.repeat(35), appId: '123456', raceOrigin: 'https://race.example.com', vaultOrigin: origin };
 
-test('application complète, Google simulé : confirmation compte, dossier dédié, upload opaque, relecture et jeton oublié', async ({ context, page }) => {
+test('application complète, Google simulé : confirmation compte, dossier dédié, upload opaque, relecture et jeton oublié', async ({ context, page, browser }) => {
   await context.route('**/*', r => r.abort());
   const fixture = await packetFixture(61), files = new Map<string, { meta: Record<string, unknown>; bytes: Buffer }>(), pending = new Map<string, Record<string, unknown>>(); let next = 0, posts = 0, folderPosts = 0, folderReady = false;
   await context.route(origin + '/**', async r => {
@@ -61,7 +63,57 @@ test('application complète, Google simulé : confirmation compte, dossier dédi
   await expect(page.getByRole('status').filter({ hasText: 'Copie envoyée' })).toBeVisible();
   expect(files.size).toBe(1); expect(posts).toBe(1);
   await page.getByRole('button', { name: 'Actualiser les versions' }).click();
-  const download = page.waitForEvent('download'); await page.getByRole('button', { name: 'Vérifier et télécharger' }).click(); await download;
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Vérifier et télécharger' }).click();
+  const archive = await download;
+  const downloaded = readFileSync(await archive.path());
+  expect(createHash('sha256').update(downloaded).digest('hex')).toBe(fixture.hash);
+  // Full business payload recovered with the ACTUAL pinned Race Control owner
+  // codec, not with a second crypto implementation in Control Vault.
+  // A virgin isolated browser has no producer storage, key or sessions.
+  const virgin = await browser.newContext({ serviceWorkers: 'block' });
+  try {
+    const ownerSource = readFileSync('tests/fixtures/race-owner/control-vault-packet.js', 'utf8');
+    await virgin.route('https://race.example.com/**', route => {
+      const p = new URL(route.request().url()).pathname;
+      return p === '/owner.js'
+        ? route.fulfill({contentType: 'text/javascript', body: ownerSource + '\nwindow.rcOwner=ControlVaultPacket;'})
+        : route.fulfill({contentType: 'text/html', body: '<!doctype html><meta charset="utf-8"><script src="/owner.js"></script><body>Virgin synthetic recovery</body>'});
+    });
+    const newDevice = await virgin.newPage();
+    await newDevice.goto('https://race.example.com/');
+    const result = await newDevice.evaluate(async ({ bytes, code, hash }) => {
+      const nativeCodec = (window as unknown as { rcOwner: {create: (o: unknown) => {open: (...args: unknown[])=>Promise<unknown>}}}).rcOwner;
+      if (!nativeCodec) throw Error('Race Control owner codec not loaded');
+      const codec = nativeCodec.create({validateBusiness: (x: unknown) => x !== null && typeof x === 'object'});
+      const localBefore = localStorage.length, sessionBefore = sessionStorage.length;
+      const databasesBefore = typeof indexedDB.databases === 'function' ? (await indexedDB.databases()).length : null;
+      const decoded = await codec.open(Uint8Array.from(bytes), code, 'prod-156', hash);
+      let wrongCode = '';
+      try { await codec.open(Uint8Array.from(bytes), 'incorrect-synthetic-code', 'prod-156', hash); }
+      catch (e) { wrongCode = String((e as {code?:string}).code || (e as Error).message); }
+      const modified = Uint8Array.from(bytes); modified[modified.length - 12] ^= 1;
+      let tampered = '';
+      try { await codec.open(modified, code, 'prod-156', hash); }
+      catch (e) { tampered = String((e as {code?:string}).code || (e as Error).message); }
+      return {decoded, localBefore, sessionBefore, databasesBefore, wrongCode, tampered,
+        localAfter:localStorage.length, sessionAfter:sessionStorage.length};
+    }, { bytes: Array.from(downloaded), code: fixtureCode, hash: fixture.hash });
+    expect(result.localBefore).toBe(0);
+    expect(result.sessionBefore).toBe(0);
+    if (result.databasesBefore !== null) expect(result.databasesBefore).toBe(0);
+    expect(result.decoded).toEqual(fixture.snapshot.data);
+    expect(result.wrongCode).toBe('AUTHENTICATION_FAILED');
+    expect(result.tampered).not.toBe('');
+    expect(result.localAfter).toBe(0);
+    expect(result.sessionAfter).toBe(0);
+    const clear = result.decoded as typeof fixture.snapshot.data;
+    expect(clear.settings.cars[0].odo[0].km).toBe(44000);
+    expect(clear.settings.cars[0].tire.treads[0].mm).toBe(6.2);
+    expect(clear.durable.context.debrief.archive.records).toHaveLength(63);
+  } finally {
+    await virgin.close();
+  }
   await expect(page.locator('input[type=password]')).toHaveCount(0);
   await page.getByLabel('Copie chiffrée Race Control').setInputFiles({ name: 'clear.json', mimeType: 'application/json', buffer: Buffer.from('{"settings":{"private":true}}') });
   await expect(page.getByRole('status').filter({ hasText: 'Opération non confirmée' })).toBeVisible(); expect(posts).toBe(1);
