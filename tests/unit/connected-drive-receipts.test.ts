@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ConnectedDrive } from '../../src/services/connected-drive';
+let ConnectedDrive: typeof import('../../src/services/connected-drive')['ConnectedDrive'];
 import type { ByteProof, RemotePacket } from '../../src/services/opaque-drive';
 
 const sha = (c: string) => c.repeat(64);
@@ -31,8 +31,11 @@ function setup(store: ReturnType<typeof storage>) {
  internal.durable=store;
  return {app,p,archive};
 }
-beforeEach(()=>{
+beforeEach(async()=>{
+ vi.stubGlobal('indexedDB',{open:vi.fn()});
  vi.stubGlobal('navigator',{locks:{request:async (_name:string,cb:()=>Promise<void>)=>cb()}});
+ vi.resetModules();
+ ({ConnectedDrive}=await import('../../src/services/connected-drive'));
 });
 afterEach(()=>vi.unstubAllGlobals());
 
