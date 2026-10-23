@@ -1,6 +1,6 @@
-// Fournisseur futur, non branché. Uniquement des paquets RC déjà chiffrés.
+// Transport de paquets RC déjà chiffrés. Le parcours réel est distinct de DemoDrive.
 // Aucun OAuth automatique, token persistant, effacement ou modification de fichier.
-import { PACKET_LIMITS, readRacePacket, type RacePacket } from '../core/race-packet';
+import { PACKET_LIMITS, readRacePacket, strictOpaqueJson, type RacePacket } from '../core/race-packet';
 import { readSyncRevision, syncRevisionProperties, syncRevisionFromProperties, sameSyncRevision, type SyncRevision } from '../core/sync-revision';
 export const DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const API = 'https://www.googleapis.com/drive/v3', UPLOAD = 'https://www.googleapis.com/upload/drive/v3/files';
@@ -23,6 +23,7 @@ export interface ByteProof {
   readonly size: number; readonly verifiedAt: number; readonly state: 'verified-bytes';
   readonly revision?: SyncRevision;
 }
+export interface SyncProfile { readonly fileId: string; readonly sha256: string; readonly bytes: Uint8Array }
 export class OpaqueDrive {
   #token: string | null = null;
   #until = 0;
@@ -117,6 +118,79 @@ export class OpaqueDrive {
     this.check(epoch, signal);
     if (!Array.isArray(v.ids) || v.ids.length !== 1 || typeof v.ids[0] !== 'string') return fail('incomplete');
     return id(v.ids[0]); // L'appelant conserve cet identifiant avant tout envoi/réessai.
+  }
+  async account(signal?: AbortSignal): Promise<string> {
+    const epoch = this.lease();
+    const value = await this.json(await this.request(API + '/about?fields=user(permissionId)', { signal }, epoch), signal);
+    this.check(epoch, signal);
+    if (!object(value.user) || typeof value.user.permissionId !== 'string') return fail('incomplete');
+    return id(value.user.permissionId);
+  }
+  async folder(folder: string, signal?: AbortSignal): Promise<void> {
+    id(folder); const epoch = this.lease();
+    const p = await this.json(await this.request(API + '/files/' + folder + '?fields=id,mimeType,trashed,capabilities(canAddChildren)', { signal }, epoch), signal);
+    this.check(epoch, signal);
+    if (p.id !== folder || p.trashed === true || p.mimeType !== 'application/vnd.google-apps.folder' || !object(p.capabilities) || p.capabilities.canAddChildren !== true) return fail('conflict');
+  }
+  // Descripteur A1 public : jamais un code, une clé ou un profil métier. Son
+  // contrôle GCM et sa dérivation restent exclusivement dans Race Control.
+  private profileBytes(bytes: Uint8Array): void {
+    if (!(bytes instanceof Uint8Array) || bytes.length > 2048) return fail('integrity');
+    let p: Record<string, unknown>;
+    try { p = strictOpaqueJson(bytes) as Record<string, unknown>; } catch { return fail('integrity'); }
+    const keys = ['format', 'schemaVersion', 'keyId', 'createdAt', 'kdf', 'it', 's', 'check'];
+    const base64 = (value: unknown, size: number) => {
+      try { if (typeof value !== 'string') return false; const raw = atob(value); return raw.length === size && btoa(raw) === value; } catch { return false; }
+    };
+    if (!object(p) || Object.keys(p).length !== keys.length || keys.some(k => !(k in p)) ||
+      p.format !== 'race-control-sync-key' || p.schemaVersion !== 1 || typeof p.keyId !== 'string' || !/^[0-9a-f]{32}$/.test(p.keyId) ||
+      p.kdf !== 'PBKDF2-SHA256' || p.it !== 600000 || typeof p.createdAt !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(p.createdAt) ||
+      !Number.isFinite(Date.parse(p.createdAt)) || new Date(p.createdAt).toISOString() !== p.createdAt || !base64(p.s, 16) || !object(p.check) ||
+      Object.keys(p.check).sort().join() !== 'c,i' || !base64(p.check.i, 12) || !base64(p.check.c, 46)) return fail('integrity');
+  }
+  async profiles(folder: string, signal?: AbortSignal): Promise<SyncProfile[]> {
+    id(folder); const epoch = this.lease(), out: SyncProfile[] = [], seen = new Set<string>(); let next = '';
+    do {
+      const params = new URLSearchParams({ q: `'${folder}' in parents and trashed = false and appProperties has { key='cv_contract' and value='rc-key-a1' }`,
+        pageSize: '1000', fields: 'nextPageToken,incompleteSearch,files(id,size,appProperties)' });
+      if (next) params.set('pageToken', next);
+      const page = await this.json(await this.request(API + '/files?' + params, { signal }, epoch), signal);
+      if (page.incompleteSearch !== false || !Array.isArray(page.files)) return fail('incomplete');
+      for (const f of page.files) {
+        if (!object(f) || typeof f.id !== 'string' || !object(f.appProperties) || !hash(f.appProperties.cv_file) ||
+          typeof f.size !== 'string' || !/^[1-9][0-9]*$/.test(f.size) || Number(f.size) > 2048) return fail('incomplete');
+        const fileId = id(f.id), bytes = await this.bytes(await this.request(API + '/files/' + fileId + '?alt=media', { signal }, epoch), 2048, signal);
+        this.profileBytes(bytes);
+        if (bytes.length !== Number(f.size) || await this.digest(bytes) !== f.appProperties.cv_file || out.some(p => p.fileId === fileId)) return fail('integrity');
+        out.push({ fileId, sha256: f.appProperties.cv_file, bytes });
+      }
+      if (page.nextPageToken === undefined) next = '';
+      else if (typeof page.nextPageToken !== 'string' || !page.nextPageToken || page.nextPageToken.length > 4096 || seen.has(page.nextPageToken)) return fail('incomplete');
+      else { next = page.nextPageToken; seen.add(next); }
+    } while (next);
+    this.check(epoch, signal); return out;
+  }
+  private async digest(bytes: Uint8Array): Promise<string> {
+    return [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes as BufferSource))].map(x => x.toString(16).padStart(2, '0')).join('');
+  }
+  async uploadProfile(fileId: string, folder: string, input: Uint8Array, signal?: AbortSignal): Promise<SyncProfile> {
+    id(fileId); id(folder); const bytes = input.slice(); this.profileBytes(bytes);
+    const epoch = this.lease(), sha256 = await this.digest(bytes);
+    const verify = async () => {
+      const meta = await this.json(await this.request(API + '/files/' + fileId + '?fields=id,size,trashed,parents,appProperties', { signal }, epoch), signal);
+      if (meta.id !== fileId || meta.trashed === true || !Array.isArray(meta.parents) || !meta.parents.includes(folder) ||
+        !object(meta.appProperties) || meta.appProperties.cv_contract !== 'rc-key-a1' || meta.appProperties.cv_file !== sha256 || meta.size !== String(bytes.length)) return fail('integrity');
+      const back = await this.bytes(await this.request(API + '/files/' + fileId + '?alt=media', { signal }, epoch), 2048, signal);
+      if (await this.digest(back) !== sha256) return fail('integrity');
+      this.check(epoch, signal); return { fileId, sha256, bytes: back };
+    };
+    try { return await verify(); } catch (e) { if (!(e instanceof OpaqueDriveError) || e.code !== 'missing') throw e; }
+    await this.folder(folder, signal); this.check(epoch, signal);
+    const boundary = 'rc_key_' + sha256;
+    const metadata = { id: fileId, name: 'rc-sync-key-' + sha256 + '.json', mimeType: 'application/json', parents: [folder], appProperties: { cv_contract: 'rc-key-a1', cv_file: sha256 } };
+    const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${new TextDecoder().decode(bytes)}\r\n--${boundary}--`;
+    await this.request(UPLOAD + '?uploadType=multipart&fields=id', { method: 'POST', signal, headers: { 'Content-Type': 'multipart/related; boundary=' + boundary }, body }, epoch, [409]);
+    return verify(); // Identifiant conservé par l'appelant AVANT cet appel.
   }
   private version(v: unknown): RemotePacket {
     if (!object(v) || typeof v.id !== 'string' || !object(v.appProperties)) return fail('incomplete');

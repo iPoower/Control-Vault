@@ -111,6 +111,11 @@ describe('pipeline de publication', () => {
     expect(String(dl?.with?.name)).toContain('${{ github.sha }}');
     expect((cf.steps ?? []).some((s) => /version\.json/.test(s.run ?? '') && /github\.sha/.test(s.run ?? ''))).toBe(true);
     expect((cf.environment as { name: string }).name).toBe('production');
+    const verify = pipeline.jobs.verify.steps ?? [];
+    const cloudArtifact = verify.find(s => /upload-artifact/.test(s.uses ?? '') && String(s.with?.name).includes('site-verifie-'));
+    expect(cloudArtifact?.with?.path).toBe('dist-cloudflare/');
+    expect(verify.some(s => (s.run ?? '').includes('security-check.ts dist-cloudflare'))).toBe(true);
+    expect((cf.steps ?? []).some(s => (s.run ?? '').includes('index.html drive-config.json'))).toBe(true);
   });
 
   it('les secrets Cloudflare ne sont utilisés que dans le job Cloudflare', () => {

@@ -4,6 +4,7 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { GoogleDriveSession } from '../src/services/google-drive-session.js';
 
 export interface Finding {
   file: string;
@@ -107,6 +108,16 @@ export function run(distDir: string, root = '.'): Finding[] {
     if (f.endsWith('.map')) findings.push({ file: rel, rule: 'source map publiée', detail: 'interdit' });
     if (!TEXT.test(f)) continue;
     const text = readFileSync(f, 'utf8');
+    if (relative(distDir, f) === 'drive-config.json' && text !== 'null') {
+      try {
+        const c = JSON.parse(text); GoogleDriveSession.config(c, c.vaultOrigin);
+        // Seuls ces identifiants publics de navigateur sont autorisés dans ce
+        // fichier généré. Aucun dossier/compte/jeton/champ inconnu n'est accepté.
+        const safe = JSON.stringify({ ...c, clientId: '', apiKey: '' });
+        findings.push(...scanText(rel, safe, [...SECRET_PATTERNS, ...PERSONAL_PATTERNS]));
+      } catch { findings.push({ file: rel, rule: 'configuration Google', detail: 'schéma public strict invalide' }); }
+      continue;
+    }
     if (/sourceMappingURL=/.test(text)) findings.push({ file: rel, rule: 'référence de source map', detail: 'interdit' });
     findings.push(...scanText(rel, text, SECRET_PATTERNS), ...scanText(rel, text, PERSONAL_PATTERNS));
   }

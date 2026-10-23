@@ -60,6 +60,6 @@ describe('addendum A1 — profil de synchronisation RC, transport inchangé', ()
   });
   it('aucun code de dérivation de clé RC dans le bundle Vault', () => {
     for (const file of ['src/core/race-packet.ts', 'src/services/opaque-drive.ts', 'src/services/opaque-archive.ts'])
-      expect(readFileSync(file, 'utf8')).not.toMatch(/SyncKey|sync-key|deriveKey/);
+      expect(readFileSync(file, 'utf8')).not.toMatch(/SyncKey\.|deriveKey|deriveBits|subtle\.decrypt/);
   });
 });

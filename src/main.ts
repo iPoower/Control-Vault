@@ -18,6 +18,8 @@ import { historyView } from './views/history';
 import { globalStatus } from './views/selectors';
 import { securityView } from './views/security';
 import { settingsView } from './views/settings';
+import { driveView } from './views/drive';
+import { connectedDrive } from './services/connected-drive';
 import type { View, ViewContext } from './views/types';
 
 // ─── Routes ────────────────────────────────────────────────────────────────
@@ -30,6 +32,7 @@ interface Route {
 }
 
 const ROUTES: Route[] = [
+  { key: 'drive', nav: 'drive', match: /^\/drive\/?$/, make: driveView },
   { key: 'home', nav: 'home', match: /^\/?$/, make: dashboardView },
   { key: 'files', nav: 'files', match: /^\/fichiers(?:\/(?<id>[\w-]+))?\/?$/, make: filesView },
   { key: 'app', nav: 'apps', match: /^\/applis\/(?<id>[\w-]+)\/?$/, make: appDetailView },
@@ -41,6 +44,7 @@ const ROUTES: Route[] = [
 
 const NAV = [
   { id: 'home', label: 'Accueil', icon: 'home', href: '#/', mobile: true },
+  { id: 'drive', label: 'Google Drive', icon: 'folder', href: '#/drive', mobile: false },
   { id: 'files', label: 'Fichiers', icon: 'folder', href: '#/fichiers', mobile: true },
   { id: 'apps', label: 'Applications', short: 'Applis', icon: 'apps', href: '#/applis', mobile: true },
   { id: 'history', label: 'Historique', icon: 'history', href: '#/historique', mobile: true },
@@ -150,6 +154,7 @@ function render() {
 }
 
 function paintNav(s: State) {
+  const realDrive = current?.nav === 'drive';
   const st = globalStatus(s);
   const failures = s.events.filter((e) => e.result === 'failed' && !e.resolved).length;
   const health = st.level === 'ok' ? 'verified' : st.level === 'action' ? 'failed' : st.level === 'attention' ? 'stale' : 'unknown';
@@ -178,13 +183,19 @@ function paintNav(s: State) {
   );
   replace(topStatus, h('span', { class: 'pill', dataset: { health } }, st.level === 'ok' ? 'Vérifié' : st.level === 'action' ? 'Action' : st.level === 'attention' ? 'À voir' : 'Hors ligne'));
   topStatus.setAttribute('aria-label', `État global : ${st.title}`);
+  if (realDrive) { replace(topStatus, h('span', { class: 'pill' }, 'Google Drive')); topStatus.setAttribute('aria-label', 'Google Drive'); }
   replace(sideFoot, h('span', null, h('span', { class: 'pill', dataset: { health } }, st.level === 'ok' ? 'Vérifié' : st.level === 'action' ? 'Action requise' : st.level === 'attention' ? 'À surveiller' : 'Hors ligne')), h('span', { class: 'side-status' }, st.title), h('span', null, 'Démonstration, données fictives'));
+  if (realDrive) replace(sideFoot, h('span', null, 'Copies opaques Race Control'), h('span', { class: 'side-status' }, connectedDrive.state.message));
 }
 
 // ─── Bandeaux contextuels ──────────────────────────────────────────────────
 
 function paintBanners(s: State) {
   const items: HTMLElement[] = [];
+  if (current?.nav === 'drive') {
+    replace(banners, h('div', { class: 'banner' }, icon('shield'), h('p', null, 'Espace Google Drive : copies opaques Race Control. Aucun code de déchiffrement dans Control Vault.')));
+    return;
+  }
   const c = s.connectivity;
   if (!c.online) {
     items.push(h('div', { class: 'banner', dataset: { health: 'unknown' } }, icon('offline'), h('p', null, s.queue.length ? 'Hors ligne. Une sauvegarde attend le retour du réseau.' : 'Hors ligne. Les sauvegardes et restaurations reprendront au retour du réseau.')));
@@ -266,6 +277,9 @@ matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => app
 applySettings(store.get());
 viewEl.append(h('div', { class: 'boot', 'aria-busy': 'true', 'aria-label': 'Ouverture du coffre' }, h('div', { class: 'sk', style: 'width: 180px; height: 180px; border-radius: 50%; margin: 24px auto' })));
 
+connectedDrive.subscribe(() => { if (current?.nav === 'drive') { paintNav(store.get()); paintBanners(store.get()); } });
+void connectedDrive.init();
+window.addEventListener('pagehide', () => connectedDrive.disconnect());
 boot()
   .then(() => {
     render();

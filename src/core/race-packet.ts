@@ -105,3 +105,6 @@ export async function readRaceFile(file: Pick<File, 'size' | 'arrayBuffer'>): Pr
   if (bytes.byteLength !== file.size) return fail('MALFORMED_FILE');
   return readRacePacket(bytes);
 }
+
+// Parseur strict réutilisé uniquement pour les métadonnées publiques A1.
+export { strictJson as strictOpaqueJson };
