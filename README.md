@@ -2,6 +2,8 @@
 
 Application personnelle de stockage, de sauvegarde et de restauration — PWA pensée d'abord pour iPhone, pleinement utilisable sur ordinateur. Google Drive pour les fichiers, Supabase Free pour l'index, 0 € par mois.
 
+Accès aux applications : [Race Control](https://race-control-ipoower.pages.dev/) · [Control Vault](https://control-vault-ipoower.pages.dev/) · [Reconversion Control](https://ipoower.github.io/Reconversion-Control/). Le groupe **Mes applications** reprend ces adresses dans chaque interface ; les liens ouvrent un nouvel onglet sans transmettre de données.
+
 > **Phase 1 — prototype UX.** Toutes les données sont fictives et recréées à chaque ouverture. Aucune connexion à Google ni à Supabase. Les moteurs, eux, sont réels : sérialisation, SHA-256, AES-256-GCM, relecture et comparaison d'empreintes s'exécutent vraiment, contre un Drive de démonstration en mémoire.
 
 ## Ce que fait le prototype

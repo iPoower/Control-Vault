@@ -75,7 +75,16 @@ const shell = h(
     sideNav,
     sideFoot,
   ),
-  h('div', { class: 'main-col' }, topbar, banners, viewEl),
+  h('div', { class: 'main-col' }, topbar, banners, viewEl,
+    h('nav', { class: 'app-links', 'aria-label': 'Mes applications' },
+      h('strong', null, 'Mes applications'),
+      h('div', null,
+        h('a', { href: 'https://race-control-ipoower.pages.dev/', target: '_blank', rel: 'noopener noreferrer', 'aria-label': 'Race Control (nouvel onglet)' }, 'Race Control ↗'),
+        h('span', { 'aria-current': 'page' }, 'Control Vault'),
+        h('a', { href: 'https://ipoower.github.io/Reconversion-Control/', target: '_blank', rel: 'noopener noreferrer', 'aria-label': 'Reconversion Control (nouvel onglet)' }, 'Reconversion Control ↗'),
+      ),
+    ),
+  ),
 );
 
 document.body.append(

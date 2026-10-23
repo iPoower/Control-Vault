@@ -1,5 +1,13 @@
 /* ── Coquille ─────────────────────────────────────────────────────────── */
 
+/* Liens publics entre applications, sans données ni session dans l'URL. */
+.app-links { width: calc(100% - 32px); max-width: 1088px; margin: 0 auto 24px; padding: 12px; border: 1px solid var(--line); border-radius: var(--r-sm); }
+.app-links > strong { display: block; color: var(--text-2); font-size: 12px; margin-bottom: 6px; }
+.app-links > div { display: flex; flex-wrap: wrap; gap: 6px 12px; }
+.app-links a, .app-links [aria-current] { display: inline-flex; align-items: center; min-height: 44px; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--r-xs); color: var(--text); text-decoration: none; overflow-wrap: anywhere; }
+.app-links [aria-current] { color: var(--text); border-color: var(--brass); background: var(--brass-soft); font-weight: 650; }
+.app-links a:focus-visible { outline: 2px solid var(--brass); outline-offset: 3px; }
+
 .shell {
   display: grid;
   grid-template-columns: 1fr;
