@@ -2,6 +2,7 @@ import { beforeAll, beforeEach, afterEach, describe, expect, it, vi } from 'vite
 import { OpaqueDrive, DRIVE_FILE_SCOPE } from '../../src/services/opaque-drive';
 import { readRacePacket } from '../../src/core/race-packet';
 import { packetFixture } from '../fixtures/race-packet';
+import { syncRevisionProperties } from '../../src/core/sync-revision';
 let fixture: Awaited<ReturnType<typeof packetFixture>>;
 beforeAll(async () => { fixture = await packetFixture(); });
 beforeEach(() => vi.stubGlobal('location', { origin: 'https://vault.fixture.test' }));
@@ -35,6 +36,7 @@ function backend() {
       return json({ id });
     }
     if (key === folder) return json({ id: folder, mimeType: 'application/vnd.google-apps.folder', capabilities: { canAddChildren: true } });
+    if (u.pathname === '/drive/v3/files') return json({ incompleteSearch: false, files: [...files.values()].map(f => f.meta) });
     const file = files.get(key); if (!file) return json({}, 404);
     if (u.searchParams.get('alt') === 'media') {
       const bytes = file.bytes.slice(); if (corrupt) bytes[0] ^= 1;
@@ -83,6 +85,90 @@ describe('fournisseur opaque, réseau entièrement fictif', () => {
     const { proof } = await drive.upload(fileId, folder, packet);
     expect(proof.state).toBe('verified-bytes'); expect(b.files.get(fileId)!.bytes).toEqual(created);
     expect(b.calls.filter(c => c.init.method === 'POST')).toHaveLength(1);
+  });
+  it('transporte toutes les révisions concurrentes sans choisir une tête ni réencoder les paquets', async () => {
+    const b = backend(), drive = client(b.fetcher), packet = await readRacePacket(fixture.bytes);
+    const revisions = [
+      { id: 'a'.repeat(32), device: 'd'.repeat(32), parents: [], seq: 1 },
+      { id: 'b'.repeat(32), device: 'd'.repeat(32), parents: ['a'.repeat(32)], seq: 2 },
+      { id: 'c'.repeat(32), device: 'e'.repeat(32), parents: ['a'.repeat(32)], seq: 1 },
+    ];
+    for (const [i, revision] of revisions.entries()) {
+      const key = 'revision-' + i, result = await drive.uploadRevision(key, folder, packet, revision);
+      expect(result.proof.revision).toEqual(revision); expect(result.proof.state).toBe('verified-bytes');
+      expect(result.packet.copyBytes()).toEqual(fixture.bytes);
+      expect(b.files.get(key)!.meta.appProperties).toMatchObject(syncRevisionProperties(revision));
+    }
+    const versions = await drive.list(folder);
+    expect(versions.map(v => v.revision)).toEqual(revisions);
+    expect(versions.every(v => v.state === 'unverified')).toBe(true);
+    expect(b.files.size).toBe(3); expect(b.calls.some(c => ['PATCH', 'DELETE'].includes(c.init.method ?? ''))).toBe(false);
+  });
+  it('refuse une révision modifiée ou retirée même lorsque tous les octets et empreintes restent identiques', async () => {
+    const b = backend(), drive = client(b.fetcher), packet = await readRacePacket(fixture.bytes);
+    const revision = { id: 'a'.repeat(32), device: 'd'.repeat(32), parents: ['0'.repeat(32)], seq: 2 };
+    await drive.uploadRevision(fileId, folder, packet, revision);
+    const [expected] = await drive.list(folder), stored = b.files.get(fileId)!, original = structuredClone(stored.meta.appProperties);
+    for (const change of [{ rcr: 'b'.repeat(32) }, { rcd: 'e'.repeat(32) }, { rcs: '3' }, { rcp0: '1'.repeat(32) }]) {
+      stored.meta.appProperties = { ...original, ...change };
+      await expect(drive.download(expected)).rejects.toMatchObject({ code: 'integrity' });
+    }
+    stored.meta.appProperties = { cv_contract: original.cv_contract, cv_file: original.cv_file, cv_cipher: original.cv_cipher };
+    await expect(drive.download(expected)).rejects.toMatchObject({ code: 'integrity' });
+    expect(stored.bytes).toEqual(fixture.bytes); expect(b.files.size).toBe(1);
+  });
+  it('refuse une collision de révision sur le même fichier sans modifier la copie existante', async () => {
+    const b = backend(), drive = client(b.fetcher), packet = await readRacePacket(fixture.bytes);
+    const revision = { id: 'a'.repeat(32), device: 'd'.repeat(32), parents: [], seq: 1 };
+    await drive.uploadRevision(fileId, folder, packet, revision);
+    await expect(drive.uploadRevision(fileId, folder, packet, { ...revision, seq: 2 })).rejects.toMatchObject({ code: 'integrity' });
+    expect(b.calls.filter(c => c.init.method === 'POST')).toHaveLength(1);
+    expect(b.files.get(fileId)!.meta.appProperties.rcs).toBe('1');
+  });
+  it('reprend la même copie A2 après perte de réponse, sans nouvel envoi ni perte des parents', async () => {
+    const b = backend(), drive = client(b.fetcher), packet = await readRacePacket(fixture.bytes); b.loseReply();
+    const revision = { id: 'a'.repeat(32), device: 'd'.repeat(32), parents: ['0'.repeat(32)], seq: 2 };
+    await expect(drive.uploadRevision(fileId, folder, packet, revision)).rejects.toMatchObject({ code: 'unavailable' });
+    const result = await drive.uploadRevision(fileId, folder, packet, revision);
+    expect(result.proof.revision).toEqual(revision); expect(b.files.size).toBe(1);
+    expect(b.calls.filter(c => c.init.method === 'POST')).toHaveLength(1);
+  });
+  it('fige les métadonnées avant l’attente et refuse les révisions invalides avant réseau', async () => {
+    const b = backend(), drive = client(b.fetcher), packet = await readRacePacket(fixture.bytes);
+    const revision = { id: 'a'.repeat(32), device: 'd'.repeat(32), parents: ['0'.repeat(32)], seq: 2 };
+    const pending = drive.uploadRevision(fileId, folder, packet, revision);
+    revision.seq = 999; revision.parents.length = 0;
+    expect((await pending).proof.revision).toEqual({ ...revision, seq: 2, parents: ['0'.repeat(32)] });
+    const network = vi.fn<typeof fetch>(), other = client(network);
+    await expect(other.uploadRevision(fileId, folder, packet, { ...revision, seq: 0 })).rejects.toMatchObject({ code: 'conflict' });
+    await expect(other.download({ fileId, fileSha256: fixture.hash, cipherSha256: fixture.envelope.sha256, size: fixture.bytes.length,
+      state: 'unverified', revision: null as any })).rejects.toMatchObject({ code: 'integrity' });
+    expect(network).not.toHaveBeenCalled();
+  });
+  it('une révision partielle bloque le catalogue et une révision ajoutée ne convertit pas une référence manuelle', async () => {
+    const b = backend(), drive = client(b.fetcher), packet = await readRacePacket(fixture.bytes);
+    await drive.upload(fileId, folder, packet);
+    const [manual] = await drive.list(folder), stored = b.files.get(fileId)!;
+    expect(manual.revision).toBeUndefined();
+    stored.meta.appProperties.rcr = 'a'.repeat(32);
+    await expect(drive.list(folder)).rejects.toMatchObject({ code: 'incomplete' });
+    Object.assign(stored.meta.appProperties, syncRevisionProperties({ id: 'a'.repeat(32), device: 'd'.repeat(32), parents: [], seq: 1 }));
+    await expect(drive.download(manual)).rejects.toMatchObject({ code: 'integrity' });
+    expect(stored.bytes).toEqual(fixture.bytes);
+  });
+  it('une référence changée pendant le téléchargement ne peut légitimer les métadonnées distantes modifiées', async () => {
+    const b = backend(), drive = client(b.fetcher), packet = await readRacePacket(fixture.bytes);
+    const revision = { id: 'a'.repeat(32), device: 'd'.repeat(32), parents: [], seq: 1 };
+    await drive.uploadRevision(fileId, folder, packet, revision);
+    const expected = { ...structuredClone((await drive.list(folder))[0]) };
+    b.files.get(fileId)!.meta.appProperties.rcs = '2';
+    const other = client(async (...args) => {
+      const response = await b.fetcher(...args);
+      expected.revision = { ...revision, seq: 2 }; // mutation pendant la première réponse
+      return response;
+    });
+    await expect(other.download(expected)).rejects.toMatchObject({ code: 'integrity' });
+    expect(b.files.get(fileId)!.bytes).toEqual(fixture.bytes);
   });
   it('refuse une collision d’identifiant avec une copie plus ancienne, sans écrasement', async () => {
     const b = backend(), drive = client(b.fetcher), a = await readRacePacket(fixture.bytes);
