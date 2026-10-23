@@ -1,6 +1,7 @@
 // Fournisseur futur, non branché. Uniquement des paquets RC déjà chiffrés.
 // Aucun OAuth automatique, token persistant, effacement ou modification de fichier.
 import { PACKET_LIMITS, readRacePacket, type RacePacket } from '../core/race-packet';
+import { readSyncRevision, syncRevisionProperties, syncRevisionFromProperties, sameSyncRevision, type SyncRevision } from '../core/sync-revision';
 export const DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const API = 'https://www.googleapis.com/drive/v3', UPLOAD = 'https://www.googleapis.com/upload/drive/v3/files';
 export class OpaqueDriveError extends Error {
@@ -15,10 +16,12 @@ const object = (value: unknown): value is Record<string, unknown> => value !== n
 export interface RemotePacket {
   readonly fileId: string; readonly fileSha256: string; readonly cipherSha256: string; readonly size: number;
   readonly state: 'unverified';
+  readonly revision?: SyncRevision;
 }
 export interface ByteProof {
   readonly fileId: string; readonly fileSha256: string; readonly cipherSha256: string;
   readonly size: number; readonly verifiedAt: number; readonly state: 'verified-bytes';
+  readonly revision?: SyncRevision;
 }
 export class OpaqueDrive {
   #token: string | null = null;
@@ -120,7 +123,10 @@ export class OpaqueDrive {
     const p = v.appProperties, size = typeof v.size === 'string' && /^\d+$/.test(v.size) ? Number(v.size) : NaN;
     if (p.cv_contract !== 'rc-v1' || !hash(p.cv_file) || !hash(p.cv_cipher) || !Number.isSafeInteger(size) || size < 1 || size > PACKET_LIMITS.file || v.trashed === true)
       return fail('incomplete');
-    return Object.freeze({ fileId: id(v.id), fileSha256: p.cv_file, cipherSha256: p.cv_cipher, size, state: 'unverified' });
+    let revision: SyncRevision | undefined;
+    try { revision = syncRevisionFromProperties(p); } catch { return fail('incomplete'); }
+    return Object.freeze({ fileId: id(v.id), fileSha256: p.cv_file, cipherSha256: p.cv_cipher, size, state: 'unverified',
+      ...(revision ? { revision } : {}) });
   }
   async list(folder: string, signal?: AbortSignal): Promise<RemotePacket[]> {
     id(folder); const epoch = this.lease(), versions = new Map<string, RemotePacket>(), tokens = new Set<string>(); let next = '';
@@ -142,10 +148,14 @@ export class OpaqueDrive {
     this.check(epoch, signal); return [...versions.values()]; // Catalogue seulement, jamais une preuve d'intégrité.
   }
   private async verified(expected: RemotePacket, epoch: number, folder?: string, signal?: AbortSignal): Promise<{ packet: RacePacket; proof: ByteProof }> {
+    // Figer la référence avant le premier await : aucune mutation de l'appelant ne peut changer la comparaison.
+    try { expected = Object.freeze({ ...expected, ...(expected.revision !== undefined ? { revision: readSyncRevision(expected.revision) } : {}) }); }
+    catch { return fail('integrity'); }
     id(expected.fileId);
     const meta = await this.json(await this.request(API + '/files/' + expected.fileId + '?fields=id,size,trashed,appProperties,parents', { signal }, epoch), signal);
     const remote = this.version(meta);
     if (remote.fileId !== expected.fileId || remote.fileSha256 !== expected.fileSha256 || remote.cipherSha256 !== expected.cipherSha256 || remote.size !== expected.size ||
+      !sameSyncRevision(remote.revision, expected.revision) ||
       folder !== undefined && (!Array.isArray(meta.parents) || !meta.parents.includes(folder))) return fail('integrity');
     const r = await this.request(API + '/files/' + expected.fileId + '?alt=media', { signal }, epoch);
     const bytes = await this.bytes(r, Math.min(PACKET_LIMITS.file, expected.size), signal);
@@ -157,16 +167,28 @@ export class OpaqueDrive {
   }
   async download(expected: RemotePacket, signal?: AbortSignal) { return this.verified(expected, this.lease(), undefined, signal); }
   async upload(fileId: string, folder: string, input: RacePacket, signal?: AbortSignal, progress: (sent: number, total: number) => void = () => {}) {
+    return this.uploadPacket(fileId, folder, input, undefined, signal, progress);
+  }
+  async uploadRevision(fileId: string, folder: string, input: RacePacket, revision: SyncRevision, signal?: AbortSignal,
+    progress: (sent: number, total: number) => void = () => {}) {
+    let checked: SyncRevision;
+    try { checked = readSyncRevision(revision); } catch { return fail('conflict'); }
+    return this.uploadPacket(fileId, folder, input, checked, signal, progress);
+  }
+  private async uploadPacket(fileId: string, folder: string, input: RacePacket, revision: SyncRevision | undefined, signal: AbortSignal | undefined,
+    progress: (sent: number, total: number) => void) {
     id(fileId); id(folder);
     const packet = await readRacePacket(input.copyBytes(), input.info.fileSha256), epoch = this.lease();
-    const expected: RemotePacket = { fileId, fileSha256: packet.info.fileSha256, cipherSha256: packet.info.cipherSha256, size: packet.info.size, state: 'unverified' };
+    const expected: RemotePacket = { fileId, fileSha256: packet.info.fileSha256, cipherSha256: packet.info.cipherSha256, size: packet.info.size,
+      state: 'unverified', ...(revision ? { revision } : {}) };
     // Réessai après perte de la dernière réponse : relire la copie existante, jamais l'écraser.
     try { return await this.verified(expected, epoch, folder, signal); }
     catch (e) { if (!(e instanceof OpaqueDriveError) || e.code !== 'missing') throw e; }
     const parent = await this.json(await this.request(API + '/files/' + folder + '?fields=id,mimeType,capabilities(canAddChildren)', { signal }, epoch), signal);
     if (parent.id !== folder || parent.mimeType !== 'application/vnd.google-apps.folder' || !object(parent.capabilities) || parent.capabilities.canAddChildren !== true) return fail('conflict');
     const meta = { id: fileId, name: 'rc-' + expected.fileSha256 + '.json', mimeType: 'application/json', parents: [folder],
-      appProperties: { cv_contract: 'rc-v1', cv_file: expected.fileSha256, cv_cipher: expected.cipherSha256 } };
+      appProperties: { cv_contract: 'rc-v1', cv_file: expected.fileSha256, cv_cipher: expected.cipherSha256,
+        ...(revision ? syncRevisionProperties(revision) : {}) } };
     const start = await this.request(UPLOAD + '?uploadType=resumable&fields=id', { method: 'POST', signal,
       headers: { 'Content-Type': 'application/json; charset=UTF-8', 'X-Upload-Content-Type': 'application/json', 'X-Upload-Content-Length': String(expected.size) }, body: JSON.stringify(meta) }, epoch, [409]);
     if (start.status === 409) return this.verified(expected, epoch, folder, signal);

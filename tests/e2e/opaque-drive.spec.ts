@@ -125,3 +125,36 @@ test('deux profils isolés : versions aller-retour, relecture et corruption dist
     expect(remote.files.size).toBe(2); // refus sans suppression ni remplacement
   } finally { for (const profile of profiles) await profile.close(); }
 });
+
+test('révisions A2 : toutes les déclarations conservées, modification distante refusée après relecture', async ({ page, context }) => {
+  const remote = remoteFixture(), fixture = await packetFixture();
+  await remote.route(context); await page.goto(origin);
+  const revisions = [
+    { id: 'a'.repeat(32), device: 'd'.repeat(32), parents: [], seq: 1 },
+    { id: 'b'.repeat(32), device: 'd'.repeat(32), parents: ['a'.repeat(32)], seq: 2 },
+    { id: 'c'.repeat(32), device: 'e'.repeat(32), parents: ['a'.repeat(32)], seq: 1 },
+  ];
+  const versions = await page.evaluate(async ({ bytes, revisions }) => {
+    const api = (window as any).CVDriveTest, drive = new api.OpaqueDrive([location.origin]);
+    drive.connect('fixture-token', 3600, [api.DRIVE_FILE_SCOPE]);
+    try {
+      const packet = await api.readRacePacket(new Uint8Array(bytes));
+      for (const revision of revisions) {
+        const result = await drive.uploadRevision(await drive.reserveId(), 'fixture-folder', packet, revision);
+        if (result.proof.state !== 'verified-bytes') throw new Error('Relecture absente');
+      }
+      return await drive.list('fixture-folder'); // Déclarations non authentifiées, aucune tête sélectionnée.
+    } finally { drive.disconnect(); }
+  }, { bytes: [...fixture.bytes], revisions });
+  expect(versions.map((v: any) => v.revision)).toEqual(revisions);
+  expect(versions.every((v: any) => v.state === 'unverified')).toBe(true);
+  const entry = remote.files.get(versions[1].fileId)!;
+  (entry.meta.appProperties as Record<string, string>).rcs = '3';
+  await expect(page.evaluate(async reference => {
+    const api = (window as any).CVDriveTest, drive = new api.OpaqueDrive([location.origin]);
+    drive.connect('fixture-token', 3600, [api.DRIVE_FILE_SCOPE]);
+    try { await drive.download(reference); } finally { drive.disconnect(); }
+  }, versions[1])).rejects.toThrow('integrity');
+  expect(remote.files.size).toBe(3);
+  for (const stored of remote.files.values()) expect(stored.bytes).toEqual(Buffer.from(fixture.bytes));
+});
