@@ -10,6 +10,7 @@ import { parse } from 'yaml';
 
 interface Job {
   name?: string;
+  container?: { image: string; options?: string };
   needs?: string | string[];
   if?: string;
   environment?: string | { name: string };
@@ -59,6 +60,18 @@ describe('pipeline de publication', () => {
     const audits = (pipeline.jobs.verify.steps ?? []).map(s => s.run ?? '').filter(s => /npm audit/.test(s));
     expect(audits).toContain('npm audit --audit-level=moderate');
     expect(audits.join('\n')).not.toMatch(/omit=dev|\|\|\s*true/);
+  });
+
+  it('utilise les navigateurs préinstallés de la version exacte du verrou, sans installation système', () => {
+    const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
+    const lock = JSON.parse(readFileSync('package-lock.json', 'utf8'));
+    const version = lock.packages['node_modules/@playwright/test'].version;
+    expect(pkg.devDependencies['@playwright/test']).toBe(version);
+    const verify = pipeline.jobs.verify;
+    expect(verify.container?.image).toBe(`mcr.microsoft.com/playwright:v${version}-noble`);
+    expect(verify.container?.options).toContain('--ipc=host');
+    const commands = (verify.steps ?? []).map(s => s.run ?? '').join('\n');
+    expect(commands).not.toMatch(/apt(?:-get)?\s+(?:install|update)|playwright\s+install|--with-deps/);
   });
 
   const deployJobs = Object.entries(pipeline.jobs).filter(([id, j]) => id !== 'verify' && publishes(j));
