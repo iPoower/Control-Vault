@@ -42,8 +42,8 @@ export class ConnectedDrive {
     catch (e) {
       const code = (e as { code?: string }).code;
       if (epoch !== this.epoch) return;
-      this.change({ connected: this.session?.connected === true, phase: ['auth','binding','integrity','conflict','confirmation','quota','missing','incomplete','unavailable','origin'].includes(code || '') ? 'SYNC_BLOCKED' : 'ERROR', lastOperationAt: Date.now(),
-        message: code === 'auth' ? 'Session Google expirée : reconnecte-toi pour reprendre.' : code === 'binding' ? 'Cet envoi attend le compte et le dossier utilisés à sa préparation.' : code === 'quota' ? 'Espace Google Drive insuffisant. Copie locale conservée.' : 'Opération non confirmée. Aucune copie distante n’a été supprimée ni remplacée.' });
+      this.change({ connected: this.session?.connected === true, phase: code === 'conflict' ? 'CONFLICT' : ['auth','binding','integrity','conflict','confirmation','quota','missing','incomplete','unavailable','origin'].includes(code || '') ? 'SYNC_BLOCKED' : 'ERROR', lastOperationAt: Date.now(),
+        message: code === 'conflict' ? 'Conflit de destination ou de métadonnées : opération bloquée, copies conservées. Vérifie les révisions dans Race Control.' : code === 'integrity' ? 'Intégrité non confirmée : synchronisation bloquée, copie locale conservée.' : code === 'auth' ? 'Session Google expirée : reconnecte-toi pour reprendre.' : code === 'binding' ? 'Cet envoi attend le compte et le dossier utilisés à sa préparation.' : code === 'quota' ? 'Espace Google Drive insuffisant. Copie locale conservée.' : 'Opération non confirmée. Aucune copie distante n’a été supprimée ni remplacée.' });
     } finally { if (epoch === this.epoch) this.change({ busy: false }); }
   }
   async prepare() { return this.action(async epoch => { await this.session?.prepare(); if (epoch !== this.epoch) return; this.change({ prepared: true, message: 'Connexion prête. Appuie sur Se connecter à Google.' }); }); }
