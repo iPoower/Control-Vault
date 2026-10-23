@@ -265,6 +265,9 @@ export class OpaqueDrive {
     return { packet, proof: Object.freeze({ ...remote, verifiedAt: this.now(), state: 'verified-bytes' }) };
   }
   async download(expected: RemotePacket, signal?: AbortSignal, folder?: string) {
+    // Le contrôle du dossier est lui-même asynchrone : figer aussi AVANT lui.
+    try { expected = Object.freeze({ ...expected, ...(expected.revision !== undefined ? { revision: readSyncRevision(expected.revision) } : {}) }); }
+    catch { return fail('integrity'); }
     const epoch = this.lease(); if (folder !== undefined) { await this.folder(folder, signal); this.check(epoch, signal); }
     return this.verified(expected, epoch, folder, signal);
   }

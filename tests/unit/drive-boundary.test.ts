@@ -109,3 +109,19 @@ describe('relecture du dossier réservé et révocation',()=>{
     expect(f.session.connected).toBe(false);expect(f.session.identity).toBeNull();expect(f.provider.reserveId).not.toHaveBeenCalled();
   });
 });
+
+describe('référence du téléchargement figée avant le contrôle du dossier',()=>{
+  it('ne suit pas une référence modifiée pendant la relecture asynchrone du dossier',async()=>{
+    const fixture=await packetFixture();let release!:()=>void;const held=new Promise<void>(r=>release=r);
+    const fetcher=vi.fn<typeof fetch>(async input=>{
+      const u=new URL(String(input)),fileId=u.pathname.split('/').at(-1)!;
+      if(fileId==='dedicated-folder'){await held;return json({id:fileId,mimeType:'application/vnd.google-apps.folder',trashed:false,ownedByMe:true,appProperties:{cv_contract:'rc-folder-v1'},capabilities:{canAddChildren:true}});}
+      if(u.searchParams.get('alt')==='media')return new Response(fixture.bytes as BodyInit);
+      return json({id:fileId,parents:['dedicated-folder'],size:String(fixture.bytes.length),appProperties:{cv_contract:'rc-v1',cv_file:fixture.hash,cv_cipher:fixture.envelope.sha256}});
+    });
+    const ref={fileId:'expected-archive',fileSha256:fixture.hash,cipherSha256:fixture.envelope.sha256,size:fixture.bytes.length,state:'unverified' as const};
+    const reading=client(fetcher).download(ref,undefined,'dedicated-folder');ref.fileId='other-archive';release();
+    expect((await reading).proof.fileId).toBe('expected-archive');
+    expect(fetcher.mock.calls.some(c=>String(c[0]).includes('/other-archive'))).toBe(false);
+  });
+});
