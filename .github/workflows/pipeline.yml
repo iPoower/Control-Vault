@@ -7,7 +7,8 @@
 # Garanties :
 #  - les jobs de publication dépendent (needs) de « Vérification complète » : si elle échoue,
 #    ils sont ignorés ;
-#  - ils publient l'artefact construit et testé dans CE run (même commit), jamais un nouveau build ;
+#  - ils publient leur artefact construit et vérifié dans CE run (même commit), jamais un nouveau build ;
+#    démo sans Google et profil isolé sont deux artefacts explicites ;
 #  - aucun déclenchement manuel (pas de workflow_dispatch) ;
 #  - publication uniquement depuis un push sur main ;
 #  - Cloudflare : projet en « Direct Upload » (aucune construction parallèle par Cloudflare),
@@ -59,8 +60,18 @@ jobs:
         run: npm test
       - name: Build
         run: npm run build
+      # Deux profils explicites : aucune configuration Google dans la démo.
+      # Les DEUX artefacts sont construits et vérifiés avant leur publication.
+      - name: Build de l'origine isolée (configuration publique)
+        run: npm run build
+        env:
+          VAULT_OUT: dist-cloudflare
+          VAULT_DEDICATED_BUILD: '1'
+          GOOGLE_DRIVE_CONFIG: ${{ vars.GOOGLE_DRIVE_CONFIG }}
       - name: Contrôle de sécurité (secrets, source maps, identifiants, CSP, en-têtes)
-        run: node scripts/security-check.ts dist
+        run: |
+          node scripts/security-check.ts dist
+          node scripts/security-check.ts dist-cloudflare
       - name: Navigateurs Playwright préinstallés
         timeout-minutes: 2
         run: |
@@ -97,7 +108,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: site-verifie-${{ github.sha }}
-          path: dist/
+          path: dist-cloudflare/
           include-hidden-files: true
           retention-days: 7
       - name: Artefact vérifié (GitHub Pages)
@@ -192,6 +203,10 @@ jobs:
             sleep 10
           done
           [ "$served" = "${{ github.sha }}" ] || { echo "Production ne sert pas ${{ github.sha }}"; exit 1; }
+          for f in index.html drive-config.json; do
+            p="$f"; [ "$f" = index.html ] && p=""
+            [ "$(curl -fsS "$url/$p" | sha256sum | cut -d' ' -f1)" = "$(sha256sum "dist/$f" | cut -d' ' -f1)" ] || { echo "Octets servis différents : $f"; exit 1; }
+          done
           headers=$(curl -fsSI "$url/")
           for h in "content-security-policy: .*frame-ancestors 'none'" "x-frame-options: DENY" "x-content-type-options: nosniff" "referrer-policy: strict-origin-when-cross-origin" "strict-transport-security:"; do
             echo "$headers" | grep -qi "$h" || { echo "En-tête manquant : $h"; exit 1; }

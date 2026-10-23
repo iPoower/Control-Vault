@@ -113,6 +113,8 @@ export function settingsView(ctx: ViewContext): View {
         setRow('Affichage des fichiers', null, segmented('Affichage des fichiers', s.settings.view, [['list', 'Liste'], ['grid', 'Grille']], (v) => patch({ view: v }))),
       ),
 
+      group('google-drive', 'Google Drive', h('a', { class: 'set-row link', href: '#/drive' }, h('div', { class: 'set-text' }, h('div', { class: 'row-title' }, 'Copies chiffrées Race Control'), h('div', { class: 'row-sub wrap' }, 'Connexion Google, dossier et versions opaques')), icon('chevron'))),
+
       group('securite', 'Sécurité', h('a', { class: 'set-row link', href: '#/securite' }, h('div', { class: 'set-text' }, h('div', { class: 'row-title' }, 'Chiffrement, permissions, sessions'), h('div', { class: 'row-sub' }, 'État détaillé et contrôle d’intégrité')), icon('chevron'))),
 
       group(

@@ -50,3 +50,7 @@ Branche → PR → « Vérification complète » (audit, types, unitaires, build
 4. Tables `vault_*` dans Supabase, RLS
 5. Contrats d'intégration Race Control et Reconversion Control
 6. Durcissement, performance, publication
+
+## Raccord Google Drive proposé (23/10/2026)
+
+Le parcours réel distinct des démonstrations est décrit dans [docs/DRIVE_CONNECTION.md](docs/DRIVE_CONNECTION.md). Il reste désactivé sans configuration publique approuvée et revue sensible ; aucune synchronisation Google réelle ni recette iPhone physique n’est attestée par les simulations.
