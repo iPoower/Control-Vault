@@ -30,7 +30,7 @@ const GoogleDriveSession = (() => {
   }
   function create(input, provider, host = globalThis) {
     const cfg = config(input, host.location.origin);
-    let token = null, until = 0, epoch = 0, prepared = false, pending = null, picker = null, pickReject = null;
+    let token = null, until = 0, epoch = 0, prepared = false, pending = null, picker = null, pickReject = null, pickerBusy = false, identity = null, approvedAccount = null, pendingFolder = null;
     const script = src => new Promise((resolve, reject) => {
       const el = host.document.createElement('script'); el.src = src; el.async = true; el.referrerPolicy = 'strict-origin-when-cross-origin';
       const timer = setTimeout(() => { el.remove(); reject(Object.assign(new Error('network'), { code: 'network' })); }, 20000);
@@ -38,7 +38,7 @@ const GoogleDriveSession = (() => {
       host.document.head.appendChild(el);
     });
     function disconnect() {
-      token = null; until = 0; epoch++; provider.disconnect(); picker?.setVisible(false); picker = null;
+      token = null; until = 0; identity = approvedAccount = pendingFolder = null; pickerBusy = false; epoch++; provider.disconnect(); picker?.setVisible(false); picker = null;
       if (pickReject) { pickReject(Object.assign(new Error('cancelled'), { code: 'cancelled' })); pickReject = null; }
       if (pending) { pending.reject(Object.assign(new Error('cancelled'), { code: 'cancelled' })); pending = null; }
     }
@@ -57,25 +57,45 @@ const GoogleDriveSession = (() => {
       return new Promise((resolve, reject) => {
         const request = { resolve, reject, epoch }; pending = request;
         const client = host.google.accounts.oauth2.initTokenClient({ client_id: cfg.clientId, scope: SCOPE, include_granted_scopes: false,
-          callback: response => {
+          callback: async response => {
             if (request !== pending || request.epoch !== epoch) return;
-            pending = null;
             try {
               if (response.error || typeof response.access_token !== 'string' ||
                 !host.google.accounts.oauth2.hasGrantedAllScopes(response, SCOPE) || response.scope?.split(/\s+/).filter(Boolean).join(' ') !== SCOPE) return fail('auth');
               const seconds = Number(response.expires_in);
               provider.connect(response.access_token, seconds, [SCOPE]);
               token = response.access_token; until = Date.now() + (seconds - 30) * 1000;
-              request.resolve();
-            } catch { disconnect(); request.reject(Object.assign(new Error('auth'), { code: 'auth' })); }
+              const selected = await provider.identity();
+              if (request !== pending || request.epoch !== epoch) return;
+              identity = Object.freeze({ ...selected }); pending = null; request.resolve();
+            } catch { if (request !== pending || request.epoch !== epoch) return; pending = null; disconnect(); request.reject(Object.assign(new Error('auth'), { code: 'auth' })); }
           }, error_callback: () => { if (request !== pending || request.epoch !== epoch) return; pending = null; disconnect(); request.reject(Object.assign(new Error('auth'), { code: 'auth' })); } });
         try { client.requestAccessToken({ prompt: 'select_account' }); }
         catch { pending = null; disconnect(); reject(Object.assign(new Error('auth'), { code: 'auth' })); }
       });
     }
+    function confirmAccount(accountId) {
+      if (!token || Date.now() >= until || !identity || identity.id !== accountId) return fail('confirmation');
+      approvedAccount = accountId;
+    }
+    function fileAccess() {
+      if (!token || Date.now() >= until || provider.connected === false) { disconnect(); return fail('auth'); }
+      if (!identity || approvedAccount !== identity.id) return fail('confirmation');
+      // Invalider toutes les réponses de l'ancienne destination, sans partager le jeton.
+      provider.connect(token, Math.floor((until - Date.now()) / 1000) + 30, [SCOPE]);
+    }
+    async function newFolder() {
+      fileAccess(); const lease = epoch, account = await provider.account();
+      if (lease !== epoch || account !== approvedAccount) return fail('auth');
+      if (!pendingFolder) { const reserved = await provider.reserveId(); if (lease !== epoch) return fail('auth'); pendingFolder = reserved; }
+      const folder = await provider.createFolder(pendingFolder);
+      if (lease !== epoch || Date.now() >= until) return fail('auth');
+      return folder;
+    }
     function chooseFolder() {
       if (pickReject) return Promise.reject(Object.assign(new Error('busy'), { code: 'busy' }));
       if (!token || Date.now() >= until) { disconnect(); return Promise.reject(Object.assign(new Error('auth'), { code: 'auth' })); }
+      try { fileAccess(); } catch (e) { return Promise.reject(e); }
       const lease = epoch;
       return new Promise((resolve, reject) => {
         pickReject = reject;
@@ -83,23 +103,27 @@ const GoogleDriveSession = (() => {
         const view = new gp.DocsView(gp.ViewId.FOLDERS).setIncludeFolders(true).setSelectFolderEnabled(true);
         picker = new gp.PickerBuilder().addView(view).setOAuthToken(token).setDeveloperKey(cfg.apiKey).setAppId(cfg.appId)
           .setOrigin(host.location.origin).setCallback(async data => {
+            if (lease !== epoch || pickReject !== reject || pickerBusy) return;
             if (data.action === gp.Action.CANCEL) { picker = null; pickReject = null; reject(Object.assign(new Error('cancelled'), { code: 'cancelled' })); }
             if (data.action !== gp.Action.PICKED) return;
-            picker = null; pickReject = null;
+            picker = null; pickerBusy = true;
             try {
               if (lease !== epoch || Date.now() >= until || data.docs?.length !== 1) return fail('auth');
-              const folder = data.docs[0].id; await provider.folder(folder);
               const account = await provider.account();
+              if (lease !== epoch || account !== approvedAccount) return fail('auth');
+              const folder = data.docs[0].id; await provider.folder(folder);
               if (lease !== epoch || Date.now() >= until) return fail('auth');
               const binding = [...new Uint8Array(await host.crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify([cfg.clientId, account, folder]))))].map(x => x.toString(16).padStart(2, '0')).join('');
               if (lease !== epoch) return fail('auth');
-              resolve({ folder, binding }); // identifiants jamais consignés ni placés dans une URL de l'application
-            } catch (e) { reject(e); }
+              pickReject = null; pickerBusy = false; resolve({ folder, binding, account: identity.label }); // identifiants jamais consignés ni placés dans une URL de l'application
+            } catch (e) { if (pickReject === reject) { pickReject = null; pickerBusy = false; } reject(e); }
           }).build();
         picker.setVisible(true);
       });
     }
-    return Object.freeze({ prepare, connect, chooseFolder, disconnect, get connected() { return !!token && Date.now() < until; } });
+    return Object.freeze({ prepare, connect, confirmAccount, newFolder, chooseFolder, disconnect,
+      get identity() { return identity && { ...identity }; }, get confirmed() { return !!approvedAccount; },
+      get connected() { if (token && (Date.now() >= until || provider.connected === false)) disconnect(); return !!token; } });
   }
   return Object.freeze({ SCOPE, config, load, create });
 })();
