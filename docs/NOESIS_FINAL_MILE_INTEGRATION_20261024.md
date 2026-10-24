@@ -13,3 +13,7 @@ AES-GCM, validate business data or establish successful Race Control restoration
 This branch is for CI/review only and must not be merged or deployed. No administrative
 change or personal activation is authorized. Rollback: leave the branch unused; all
 source branches and main stay unchanged. Original PRs require explicit human approval.
+
+Additional browser regression imports the real DriveStore and exercises native IDB
+transaction abort, connection close/reopen, its versionchange handler and WebCrypto
+recovery byte comparison. This new head needs its own full CI.
