@@ -46,6 +46,8 @@ export function driveView(): View {
       h('section', { class: 'panel' }, h('div', { class: 'panel-body' }, h('h2', null, 'Récupération'),
         h('p', null, 'Vérifie et télécharge une version, puis importe ce fichier dans Réglages → Sauvegarde de Race Control. Une empreinte identique prouve les octets reçus ; seul Race Control vérifie le chiffrement et prépare la fusion avec tes données actuelles.'),
         s.recoveryOrigin ? h('a', { class: 'btn', href: s.recoveryOrigin, target: '_blank', rel: 'noopener noreferrer' }, 'Ouvrir Race Control') : null,
+        s.recoveryOrigin ? h('a', { class: 'btn', href: new URL('/recovery.html', s.recoveryOrigin).href, target: '_blank', rel: 'noopener noreferrer' }, 'Récupérer sur un appareil neuf dans Race Control') : null,
+        h('p', { class: 'muted small' }, 'Sur appareil neuf, la récupération A2 se fait uniquement dans Race Control : compte et dossier confirmés, code local, copie indépendante puis vérification après réouverture. Tout stockage existant bloque le parcours vierge.'),
         h('p', { class: 'muted small' }, 'Aucune purge automatique. Aucun envoi de JSON personnel en clair. Une session Google expirée exige une reconnexion volontaire.'))),
     );
   };

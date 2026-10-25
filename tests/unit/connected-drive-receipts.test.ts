@@ -80,4 +80,31 @@ describe('NOESIS-CV-001 — proof of opaque download survives reload',()=>{
    expect(disk.saved.job).not.toBeNull();
    expect(disk.saved.receipts).toEqual([]);
  });
+ it('compares an encrypted pending upload without expanding its bytes into JSON strings',async()=>{
+   const job={binding:'test-binding',bytes:new Uint8Array(2*1024*1024).fill(73),fileId:'reserved',sha:sha('c')};
+   const disk=storage({v:1,job,receipts:[]}),{app}=setup(disk);
+   const stringify=JSON.stringify;
+   const guard=vi.spyOn(JSON,'stringify').mockImplementation(((value:any,...args:any[])=>{
+     if(value?.bytes instanceof Uint8Array)throw new Error('encrypted upload must not be expanded into JSON');
+     return stringify(value,...args);
+   }) as typeof JSON.stringify);
+   try { expect(await app.download(ref)).toEqual(bytes); expect(app.state.phase).toBe('VERIFIED_BYTES'); }
+   finally { guard.mockRestore(); }
+   const after=disk.saved.job;
+   expect(after?.binding).toBe(job.binding);expect(after?.fileId).toBe(job.fileId);expect(after?.sha).toBe(job.sha);
+   expect(after?.bytes.length).toBe(job.bytes.length);
+   expect(after&&Buffer.from(after.bytes).equals(Buffer.from(job.bytes))).toBe(true);
+ });
+ it('rejects a one-byte change to a pending upload during receipt readback',async()=>{
+   const job={binding:'test-binding',bytes:new Uint8Array([7,8,9]),fileId:'reserved',sha:sha('c')};
+   const disk=storage({v:1,job,receipts:[]}),{app}=setup(disk);
+   const read=disk.read;
+   disk.read.mockImplementation(async()=>{
+     const value=structuredClone(disk.saved);
+     if(value.receipts.length&&value.job)value.job.bytes[1]^=1;
+     return value;
+   });
+   expect(await app.download(ref)).toBeNull();expect(app.state.phase).toBe('ERROR');
+   expect(disk.saved.job).toEqual(job);expect(read).toHaveBeenCalled();
+ });
 });
