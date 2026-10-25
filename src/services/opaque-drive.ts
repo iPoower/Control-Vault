@@ -43,6 +43,7 @@ export class OpaqueDrive {
     this.#token = token; this.#until = this.now() + expiresIn * 1000 - 30000;
   }
   disconnect(): void { this.#token = null; this.#until = 0; this.#epoch++; }
+  get connected(): boolean { if (!this.#token || this.now() >= this.#until) { this.disconnect(); return false; } return true; }
   private lease(): number { this.guard(); if (!this.#token || this.now() >= this.#until) { this.disconnect(); return fail('auth'); } return this.#epoch; }
   private check(epoch: number, signal?: AbortSignal | null): void {
     if (signal?.aborted) return fail('cancelled');
@@ -126,11 +127,31 @@ export class OpaqueDrive {
     if (!object(value.user) || typeof value.user.permissionId !== 'string') return fail('incomplete');
     return id(value.user.permissionId);
   }
+  async identity(signal?: AbortSignal): Promise<{ id: string; label: string }> {
+    const epoch = this.lease();
+    const value = await this.json(await this.request(API + '/about?fields=user(permissionId,emailAddress)', { signal }, epoch), signal);
+    this.check(epoch, signal);
+    if (!object(value.user) || typeof value.user.permissionId !== 'string' || typeof value.user.emailAddress !== 'string' ||
+      value.user.emailAddress.length > 254 || !/^[^\s@]+@[^\s@]+$/.test(value.user.emailAddress)) return fail('incomplete');
+    return Object.freeze({ id: id(value.user.permissionId), label: value.user.emailAddress }); // mémoire/UI seulement
+  }
   async folder(folder: string, signal?: AbortSignal): Promise<void> {
     id(folder); const epoch = this.lease();
-    const p = await this.json(await this.request(API + '/files/' + folder + '?fields=id,mimeType,trashed,capabilities(canAddChildren)', { signal }, epoch), signal);
+    const p = await this.json(await this.request(API + '/files/' + folder + '?fields=id,mimeType,trashed,ownedByMe,appProperties,capabilities(canAddChildren)', { signal }, epoch), signal);
     this.check(epoch, signal);
-    if (p.id !== folder || p.trashed === true || p.mimeType !== 'application/vnd.google-apps.folder' || !object(p.capabilities) || p.capabilities.canAddChildren !== true) return fail('conflict');
+    if (p.id !== folder || p.trashed !== false || p.ownedByMe !== true || p.mimeType !== 'application/vnd.google-apps.folder' ||
+      !object(p.appProperties) || p.appProperties.cv_contract !== 'rc-folder-v1' ||
+      !object(p.capabilities) || p.capabilities.canAddChildren !== true) return fail('conflict');
+  }
+  async createFolder(fileId: string, signal?: AbortSignal): Promise<string> {
+    id(fileId); const epoch = this.lease();
+    // Réserver l'ID avant l'appel ; une réponse perdue est relue, jamais remplacée.
+    try { await this.folder(fileId, signal); this.check(epoch, signal); return fileId; }
+    catch (e) { if (!(e instanceof OpaqueDriveError) || e.code !== 'missing') throw e; }
+    const metadata = { id: fileId, name: 'Control Vault — sauvegardes chiffrées', mimeType: 'application/vnd.google-apps.folder',
+      appProperties: { cv_contract: 'rc-folder-v1' } };
+    await this.request(API + '/files?fields=id', { method: 'POST', signal, headers: { 'Content-Type': 'application/json; charset=UTF-8' }, body: JSON.stringify(metadata) }, epoch, [409]);
+    await this.folder(fileId, signal); this.check(epoch, signal); return fileId;
   }
   // Descripteur A1 public : jamais un code, une clé ou un profil métier. Son
   // contrôle GCM et sa dérivation restent exclusivement dans Race Control.
@@ -149,15 +170,17 @@ export class OpaqueDrive {
       Object.keys(p.check).sort().join() !== 'c,i' || !base64(p.check.i, 12) || !base64(p.check.c, 46)) return fail('integrity');
   }
   async profiles(folder: string, signal?: AbortSignal): Promise<SyncProfile[]> {
-    id(folder); const epoch = this.lease(), out: SyncProfile[] = [], seen = new Set<string>(); let next = '';
+    id(folder); const epoch = this.lease(); await this.folder(folder, signal); this.check(epoch, signal);
+    const out: SyncProfile[] = [], seen = new Set<string>(); let next = '';
     do {
       const params = new URLSearchParams({ q: `'${folder}' in parents and trashed = false and appProperties has { key='cv_contract' and value='rc-key-a1' }`,
-        pageSize: '1000', fields: 'nextPageToken,incompleteSearch,files(id,size,appProperties)' });
+        pageSize: '1000', fields: 'nextPageToken,incompleteSearch,files(id,size,trashed,parents,appProperties)' });
       if (next) params.set('pageToken', next);
       const page = await this.json(await this.request(API + '/files?' + params, { signal }, epoch), signal);
       if (page.incompleteSearch !== false || !Array.isArray(page.files)) return fail('incomplete');
       for (const f of page.files) {
-        if (!object(f) || typeof f.id !== 'string' || !object(f.appProperties) || !hash(f.appProperties.cv_file) ||
+        if (!object(f) || typeof f.id !== 'string' || f.trashed === true || !Array.isArray(f.parents) || !f.parents.includes(folder) ||
+          !object(f.appProperties) || f.appProperties.cv_contract !== 'rc-key-a1' || !hash(f.appProperties.cv_file) ||
           typeof f.size !== 'string' || !/^[1-9][0-9]*$/.test(f.size) || Number(f.size) > 2048) return fail('incomplete');
         const fileId = id(f.id), bytes = await this.bytes(await this.request(API + '/files/' + fileId + '?alt=media', { signal }, epoch), 2048, signal);
         this.profileBytes(bytes);
@@ -176,6 +199,7 @@ export class OpaqueDrive {
   async uploadProfile(fileId: string, folder: string, input: Uint8Array, signal?: AbortSignal): Promise<SyncProfile> {
     id(fileId); id(folder); const bytes = input.slice(); this.profileBytes(bytes);
     const epoch = this.lease(), sha256 = await this.digest(bytes);
+    await this.folder(folder, signal); this.check(epoch, signal);
     const verify = async () => {
       const meta = await this.json(await this.request(API + '/files/' + fileId + '?fields=id,size,trashed,parents,appProperties', { signal }, epoch), signal);
       if (meta.id !== fileId || meta.trashed === true || !Array.isArray(meta.parents) || !meta.parents.includes(folder) ||
@@ -185,7 +209,6 @@ export class OpaqueDrive {
       this.check(epoch, signal); return { fileId, sha256, bytes: back };
     };
     try { return await verify(); } catch (e) { if (!(e instanceof OpaqueDriveError) || e.code !== 'missing') throw e; }
-    await this.folder(folder, signal); this.check(epoch, signal);
     const boundary = 'rc_key_' + sha256;
     const metadata = { id: fileId, name: 'rc-sync-key-' + sha256 + '.json', mimeType: 'application/json', parents: [folder], appProperties: { cv_contract: 'rc-key-a1', cv_file: sha256 } };
     const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${new TextDecoder().decode(bytes)}\r\n--${boundary}--`;
@@ -203,14 +226,16 @@ export class OpaqueDrive {
       ...(revision ? { revision } : {}) });
   }
   async list(folder: string, signal?: AbortSignal): Promise<RemotePacket[]> {
-    id(folder); const epoch = this.lease(), versions = new Map<string, RemotePacket>(), tokens = new Set<string>(); let next = '';
+    id(folder); const epoch = this.lease(); await this.folder(folder, signal); this.check(epoch, signal);
+    const versions = new Map<string, RemotePacket>(), tokens = new Set<string>(); let next = '';
     do {
       const p = new URLSearchParams({ q: `'${folder}' in parents and trashed = false and appProperties has { key='cv_contract' and value='rc-v1' }`,
-        pageSize: '1000', fields: 'nextPageToken,incompleteSearch,files(id,size,trashed,appProperties)' });
+        pageSize: '1000', fields: 'nextPageToken,incompleteSearch,files(id,size,trashed,parents,appProperties)' });
       if (next) p.set('pageToken', next);
       const page = await this.json(await this.request(API + '/files?' + p, { signal }, epoch), signal);
       if (page.incompleteSearch !== false || !Array.isArray(page.files)) return fail('incomplete');
       for (const raw of page.files) {
+        if (!object(raw) || !Array.isArray(raw.parents) || !raw.parents.includes(folder)) return fail('conflict');
         const v = this.version(raw), old = versions.get(v.fileId);
         if (old && JSON.stringify(old) !== JSON.stringify(v)) return fail('conflict');
         versions.set(v.fileId, v);
@@ -239,7 +264,13 @@ export class OpaqueDrive {
     this.check(epoch, signal);
     return { packet, proof: Object.freeze({ ...remote, verifiedAt: this.now(), state: 'verified-bytes' }) };
   }
-  async download(expected: RemotePacket, signal?: AbortSignal) { return this.verified(expected, this.lease(), undefined, signal); }
+  async download(expected: RemotePacket, signal?: AbortSignal, folder?: string) {
+    // Le contrôle du dossier est lui-même asynchrone : figer aussi AVANT lui.
+    try { expected = Object.freeze({ ...expected, ...(expected.revision !== undefined ? { revision: readSyncRevision(expected.revision) } : {}) }); }
+    catch { return fail('integrity'); }
+    const epoch = this.lease(); if (folder !== undefined) { await this.folder(folder, signal); this.check(epoch, signal); }
+    return this.verified(expected, epoch, folder, signal);
+  }
   async upload(fileId: string, folder: string, input: RacePacket, signal?: AbortSignal, progress: (sent: number, total: number) => void = () => {}) {
     return this.uploadPacket(fileId, folder, input, undefined, signal, progress);
   }
@@ -253,13 +284,12 @@ export class OpaqueDrive {
     progress: (sent: number, total: number) => void) {
     id(fileId); id(folder);
     const packet = await readRacePacket(input.copyBytes(), input.info.fileSha256), epoch = this.lease();
+    await this.folder(folder, signal); this.check(epoch, signal);
     const expected: RemotePacket = { fileId, fileSha256: packet.info.fileSha256, cipherSha256: packet.info.cipherSha256, size: packet.info.size,
       state: 'unverified', ...(revision ? { revision } : {}) };
     // Réessai après perte de la dernière réponse : relire la copie existante, jamais l'écraser.
     try { return await this.verified(expected, epoch, folder, signal); }
     catch (e) { if (!(e instanceof OpaqueDriveError) || e.code !== 'missing') throw e; }
-    const parent = await this.json(await this.request(API + '/files/' + folder + '?fields=id,mimeType,capabilities(canAddChildren)', { signal }, epoch), signal);
-    if (parent.id !== folder || parent.mimeType !== 'application/vnd.google-apps.folder' || !object(parent.capabilities) || parent.capabilities.canAddChildren !== true) return fail('conflict');
     const meta = { id: fileId, name: 'rc-' + expected.fileSha256 + '.json', mimeType: 'application/json', parents: [folder],
       appProperties: { cv_contract: 'rc-v1', cv_file: expected.fileSha256, cv_cipher: expected.cipherSha256,
         ...(revision ? syncRevisionProperties(revision) : {}) } };

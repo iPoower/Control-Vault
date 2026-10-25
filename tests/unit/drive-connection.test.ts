@@ -31,13 +31,13 @@ describe('connexion réelle et métadonnées publiques A1', () => {
       if (u.pathname.endsWith('/about')) return json({ user: { permissionId: 'synthetic_account' } });
       if (u.pathname.endsWith('/files/generateIds')) return json({ ids: ['reserved_key'] });
       if (u.pathname === '/upload/drive/v3/files') { expect(init.method).toBe('POST'); expect(String(init.body)).not.toContain('synthetic-owner-code'); expect(String(init.body)).toContain('reserved_key'); stored = true; return json({ id: 'reserved_key' }); }
-      if (u.pathname.endsWith('/files/folder_A')) return json({ id: 'folder_A', mimeType: 'application/vnd.google-apps.folder', capabilities: { canAddChildren: true } });
+      if (u.pathname.endsWith('/files/folder_A')) return json({ id: 'folder_A', mimeType: 'application/vnd.google-apps.folder', trashed: false, ownedByMe: true, appProperties: { cv_contract: 'rc-folder-v1' }, capabilities: { canAddChildren: true } });
       if (u.pathname.endsWith('/files/reserved_key')) {
         if (!stored) return json({}, 404);
         if (u.searchParams.get('alt') === 'media') return new Response(bytes as BodyInit);
         return json({ id: 'reserved_key', size: String(bytes.length), parents: ['folder_A'], appProperties: { cv_contract: 'rc-key-a1', cv_file: hash } });
       }
-      if (u.pathname.endsWith('/files')) return json({ incompleteSearch: false, files: stored ? [{ id: 'reserved_key', size: String(bytes.length), appProperties: { cv_contract: 'rc-key-a1', cv_file: hash } }] : [] });
+      if (u.pathname.endsWith('/files')) return json({ incompleteSearch: false, files: stored ? [{ id: 'reserved_key', parents: ['folder_A'], size: String(bytes.length), appProperties: { cv_contract: 'rc-key-a1', cv_file: hash } }] : [] });
       throw new Error('Unexpected request');
     }) as typeof fetch;
     const drive = new OpaqueDrive(['https://vault.example.com'], fetcher); drive.connect('synthetic_token', 3600, [DRIVE_FILE_SCOPE]);
