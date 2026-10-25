@@ -8,6 +8,15 @@ import { OpaqueDrive, type RemotePacket, type ByteProof } from './opaque-drive';
 
 interface Job { binding: string; bytes: Uint8Array; fileId: string | null; sha: string }
 interface Durable { v: 1; job: Job | null; receipts: ByteProof[] }
+// Ne jamais sérialiser un Uint8Array pouvant atteindre 68 Mio en deux chaînes
+// JSON géantes pour confirmer qu'un téléchargement n'a pas changé l'envoi.
+function sameJob(a: Job | null, b: Job | null): boolean {
+  if (a === null || b === null) return a === b;
+  return !!a && !!b && Object.keys(a).length === 4 && Object.keys(b).length === 4 &&
+    a.binding === b.binding && a.fileId === b.fileId && a.sha === b.sha &&
+    a.bytes instanceof Uint8Array && b.bytes instanceof Uint8Array && a.bytes.length === b.bytes.length &&
+    a.bytes.every((value, i) => value === b.bytes[i]);
+}
 export interface ConnectedState { configured: boolean; prepared: boolean; connected: boolean; selected: boolean; busy: boolean; message: string;
   versions: RemotePacket[]; receipts: ByteProof[]; recoveryOrigin: string | null; account: string | null; accountConfirmed: boolean; folder: string | null;
   phase: 'WAITING' | 'SENDING' | 'UPLOADED' | 'VERIFIED_BYTES' | 'CONFLICT' | 'SYNC_BLOCKED' | 'ERROR'; pending: boolean; lastOperationAt: number | null }
@@ -140,7 +149,7 @@ export class ConnectedDrive {
           p.fileSha256 === back.proof.fileSha256 && p.cipherSha256 === back.proof.cipherSha256 &&
           p.size === back.proof.size && p.verifiedAt === back.proof.verifiedAt;
         if (!confirmed || confirmed.v !== 1 || !Array.isArray(confirmed.receipts) ||
-            !confirmed.receipts.some(sameProof) || JSON.stringify(confirmed.job) !== JSON.stringify(previous.job))
+            !confirmed.receipts.some(sameProof) || !sameJob(confirmed.job, previous.job))
           throw new Error('stockage');
         receipts = confirmed.receipts;
       });

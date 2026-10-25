@@ -47,6 +47,10 @@ test('application complète, Google simulé : confirmation compte, dossier dédi
   await page.goto(origin + '/#/reglages');
   await page.getByRole('link', { name: /Copies chiffrées Race Control/ }).click();
   await expect(page.getByRole('heading', { name: 'Google Drive', exact: true })).toBeVisible();
+  const recoveryLink=page.getByRole('link',{name:'Récupérer sur un appareil neuf dans Race Control'});
+  await expect(recoveryLink).toHaveAttribute('href','https://race.example.com/recovery.html');
+  await expect(recoveryLink).toHaveAttribute('rel','noopener noreferrer');
+  await expect(page.locator('input[type=password]')).toHaveCount(0);
   await page.getByRole('button', { name: 'Préparer la connexion Google' }).click();
   await page.getByRole('button', { name: 'Se connecter à Google', exact: true }).click();
   await expect(page.getByText('Compte Google sélectionné : fixture-backup@example.invalid')).toBeVisible();
