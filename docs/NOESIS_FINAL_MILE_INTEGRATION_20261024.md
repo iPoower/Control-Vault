@@ -17,3 +17,15 @@ source branches and main stay unchanged. Original PRs require explicit human app
 Additional browser regression imports the real DriveStore and exercises native IDB
 transaction abort, connection close/reopen, its versionchange handler and WebCrypto
 recovery byte comparison. This new head needs its own full CI.
+## Complément de validation — 25 octobre 2026
+
+La combinaison de test conserve #16–#19 et les épreuves IDB natives, puis ajoute
+#21 (7a2b78b037711816a99b4c47c666223a0cdb8031) : comparaison des jobs chiffrés
+sans expansion JSON et lien vers la récupération qui reste exécutée dans RC.
+Le code de déchiffrement n'entre jamais dans Control Vault.
+
+NE PAS FUSIONNER NI DÉPLOYER cette PR temporaire. Sa tête historique
+3d177ac58173944599150d8d18515417375b9eb6 reste dans ses ancêtres. Aucun main
+ou branche source n'est modifié. Vérifier sa nouvelle CI au SHA exact ; les
+réponses Google sont fictives et aucun iPhone physique n'est validé.
+
