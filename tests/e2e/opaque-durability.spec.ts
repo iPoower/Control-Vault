@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { test, expect, chromium, webkit, type BrowserContext } from '@playwright/test';
 import { build } from 'vite';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -95,4 +96,16 @@ test('quota et corruption : aucune version précédente supprimée, aucun catalo
     }, [...fixture.bytes]);
     expect(result).toEqual({ quota: true, ids: [fixture.hash], refused: true, count: 1 });
   } finally { await context.close(); }
+});
+
+
+test('DriveStore natif : abort, connexion close, versionchange et récupération préservée', async ({ browser }) => {
+  const context=await browser.newContext({serviceWorkers:'block'});await route(context);
+  try {
+    const page=await context.newPage();await page.goto(origin);
+    const result=await page.evaluate(readFileSync('tests/fixtures/native-drive-store.js','utf8')) as any;
+    expect(result.aborted).toBe(true);expect(result.closedRejected).toBe(true);
+    for(const key of ['afterAbort','afterReopen','afterVersionChange'])expect(result[key]).toEqual(result.expected);
+    expect(result.recoveryHash).toMatch(/^[0-9a-f]{64}$/);expect(result.recovery).toEqual([9,8,7,0,255]);
+  } finally {await context.close();}
 });
