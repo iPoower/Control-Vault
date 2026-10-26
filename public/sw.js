@@ -37,6 +37,10 @@ self.addEventListener('fetch', (event) => {
 
   // Navigation : réseau d'abord (toujours la dernière version), cache en secours hors ligne.
   if (req.mode === 'navigate') {
+    // Une page de reprise, une configuration ou tout autre document HTML ne doit
+    // jamais écraser ./index.html dans CacheStorage. Seuls les alias du shell
+    // bénéficient du repli hors ligne.
+    if (![APP_PATH, APP_PATH + 'index', APP_PATH + 'index.html'].includes(url.pathname)) return;
     event.respondWith(
       fetch(req)
         .then((res) => {
