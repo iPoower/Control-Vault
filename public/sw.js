@@ -9,6 +9,20 @@ const CACHE_PREFIX = 'cv-shell-';
 const VERSION = `${CACHE_PREFIX}v4`;
 const APP_PATH = new URL(self.registration.scope).pathname;
 const cached = (request) => caches.open(VERSION).then((cache) => cache.match(request));
+// L'URL finale est la preuve de provenance, après toutes les redirections.
+// Filtrer aussi les anciennes entrées évite de servir un cache déjà contaminé.
+function validShell(response) {
+  if (!response?.ok || !/^text\/html(?:\s*;|$)/i.test(response.headers.get('content-type') || '') || !response.url) return false;
+  try {
+    const final = new URL(response.url);
+    return final.origin === self.location.origin && [APP_PATH, APP_PATH + 'index', APP_PATH + 'index.html'].includes(final.pathname);
+  } catch { return false; }
+}
+async function cachedShell() {
+  const response = await cached('./index.html');
+  if (!validShell(response)) throw new Error('Aucun shell hors ligne vérifié');
+  return response;
+}
 async function remember(request, response) {
   try {
     const cache = await caches.open(VERSION);
@@ -46,12 +60,12 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(req)
         .then((res) => {
-          if (res.ok && res.headers.get('content-type')?.includes('text/html')) {
+          if (validShell(res)) {
             return remember('./index.html', res);
           }
           return res;
         })
-        .catch(() => cached('./index.html')),
+        .catch(() => cachedShell()),
     );
     return;
   }
