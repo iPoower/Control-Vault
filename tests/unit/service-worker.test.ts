@@ -139,4 +139,18 @@ describe('Service Worker : isolation interprojets', () => {
     expect(h.written).toEqual([{ cache: 'cv-shell-v3', request: asset }]);
     expect(h.matched.every(k => k.startsWith('cv-shell-v3:'))).toBe(true);
   });
+  it('ne remplace jamais le shell par une navigation vers /recovery ou un JSON de configuration', () => {
+    const h = harness(['cv-shell-v3'], { fetch: async () => response(true, 'text/html') });
+    const paths = ['recovery', 'recovery.html', 'drive-config.json', 'fixture-manifest.json'];
+    for (const path of paths) {
+      let intercepted = false;
+      h.listeners.get('fetch')?.({
+        request: { method: 'GET', mode: 'navigate', url: 'https://ipoower.github.io/Control-Vault/' + path },
+        respondWith: () => { intercepted = true; },
+      });
+      expect(intercepted, 'le navigateur doit aller directement au réseau pour ' + path).toBe(false);
+    }
+    expect(h.written).toEqual([]);
+  });
+
 });
