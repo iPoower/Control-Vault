@@ -111,6 +111,27 @@ jobs:
         run: npm run test:e2e
         env:
           CI: '1'
+      # FORTRESS : paquet synthétique atteste pour la seule PR d'exécution TEST.
+      # Aucun secret, client personnel, upload Cloudflare ou requête Google ici.
+      - id: fortress_attest
+        name: FORTRESS - attester un bundle TEST synthétique
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'test/fortress-drive-execution-20261026'
+        env:
+          BUILD_SHA: ${{ github.event.pull_request.head.sha }}
+          FORTRESS_TEST_GOOGLE_CONFIG: ${{ vars.FORTRESS_TEST_GOOGLE_CONFIG }}
+          GOOGLE_DRIVE_CONFIG: ${{ vars.FORTRESS_TEST_GOOGLE_CONFIG }}
+        run: |
+          node scripts/build-drive-test.mjs > "$RUNNER_TEMP/fortress-build-receipt.json"
+          node scripts/verify-fortress-artifact.mjs "$RUNNER_TEMP/fortress-build-receipt.json"
+      - name: FORTRESS - conserver les octets TEST attestes (sans deployer)
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'test/fortress-drive-execution-20261026'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: fortress-control-vault-test-${{ github.event.pull_request.head.sha }}
+          path: ${{ steps.fortress_attest.outputs.site_dir }}/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
       - name: Captures d'écran des parcours (données fictives uniquement)
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4 — SHA vérifié le 23/10/2026
