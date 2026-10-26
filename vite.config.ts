@@ -1,4 +1,4 @@
-import { writeFileSync, readFileSync } from 'node:fs';
+import { writeFileSync, readFileSync, readdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { defineConfig, type Plugin } from 'vite';
@@ -17,6 +17,14 @@ function buildStamp(): Plugin {
     name: 'control-vault-version',
     apply: 'build',
     closeBundle() {
+      const assets = readdirSync(resolve(out, 'assets'), { withFileTypes: true }).map(entry => {
+        if (!entry.isFile() || !/\.(?:js|css|woff2|png|svg)$/.test(entry.name)) throw new Error('Asset de build inattendu');
+        return './assets/' + entry.name;
+      }).sort();
+      const worker = resolve(out, 'sw.js'), source = readFileSync(worker, 'utf8');
+      const marker = '/* @build-assets */ []';
+      if (!source.includes(marker) || !assets.some(name => name.endsWith('.js'))) throw new Error('Précache incomplet');
+      writeFileSync(worker, source.replace(marker, JSON.stringify(assets)));
       const sha = /^[0-9a-f]{40}$/.test(process.env.BUILD_SHA ?? '') ? process.env.BUILD_SHA : 'local';
       const bytes = JSON.stringify(config);
       writeFileSync(resolve(out, 'drive-config.json'), bytes);

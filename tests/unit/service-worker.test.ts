@@ -11,7 +11,7 @@ type TestEvent = {
   request?: { method: string; mode: string; url: string };
 };
 
-function harness(initial: string[], options: { fetch?: () => Promise<unknown>; hit?: boolean; failPut?: boolean; origin?: string; scope?: string } = {}) {
+function harness(initial: string[], options: { fetch?: () => Promise<unknown>; hit?: boolean; failPut?: boolean; origin?: string; scope?: string; cachedUrl?: string } = {}) {
   const names = new Set(initial);
   const deleted: string[] = [];
   const listeners = new Map<string, (event: TestEvent) => void>();
@@ -37,7 +37,7 @@ function harness(initial: string[], options: { fetch?: () => Promise<unknown>; h
       names.add(key);
       return { addAll: async (_urls: string[]) => {},
         put: async (request: unknown) => { if (options.failPut) throw new Error('Quota fictif'); written.push({ cache: key, request }); },
-        match: async (request: string) => { matched.push(key + ':' + request); return options.hit === false ? undefined : { offlineShell: true }; } };
+        match: async (request: string) => { matched.push(key + ':' + request); return options.hit === false ? undefined : { offlineShell: true, ok: true, url: options.cachedUrl ?? self.registration.scope, headers: { get: () => 'text/html' } }; } };
     },
     match: async (key: string) => {
       matched.push(key);
@@ -87,7 +87,7 @@ describe('Service Worker : isolation interprojets', () => {
       respondWith: (promise) => { response = promise; },
     });
     expect(response).toBeDefined();
-    await expect(response).resolves.toEqual({ offlineShell: true });
+    await expect(response).resolves.toMatchObject({ offlineShell: true, url: 'https://ipoower.github.io/Control-Vault/' });
     expect(h.matched).toEqual(['cv-shell-v4:./index.html']);
     expect(h.deleted).toEqual([]);
   });
@@ -106,7 +106,7 @@ describe('Service Worker : isolation interprojets', () => {
     expect(responded).toBe(false);
   });
 
-  const response = (ok = true, type = 'text/html') => ({ ok, headers: { get: () => type }, clone() { return this; } });
+  const response = (ok = true, type = 'text/html', url = 'https://ipoower.github.io/Control-Vault/') => ({ ok, url, headers: { get: () => type }, clone() { return this; } });
   const navigation = { method: 'GET', mode: 'navigate', url: 'https://ipoower.github.io/Control-Vault/' };
   async function request(h: ReturnType<typeof harness>, request = navigation) {
     let pending: Promise<unknown> | undefined;
@@ -131,6 +131,26 @@ describe('Service Worker : isolation interprojets', () => {
     const res = response(), h = harness([], { fetch: async () => res, failPut: true });
     expect(await request(h)).toBe(res);
     expect(h.matched).toEqual([]);
+  });
+  it('refuse de persister les redirections HTML externes, secondaires ou sans URL finale', async () => {
+    for (const url of ['https://outside.invalid/login', 'https://ipoower.github.io/Control-Vault/signin.html', '']) {
+      const h = harness([], { fetch: async () => response(true, 'text/html', url) });
+      await request(h);
+      expect(h.written, 'réponse non autorisée : ' + url).toEqual([]);
+    }
+  });
+  it('refuse un ancien cache HTML provenant d’une redirection secondaire ou externe', async () => {
+    for (const cachedUrl of ['https://outside.invalid/login', 'https://ipoower.github.io/Control-Vault/signin.html', '']) {
+      const h = harness(['cv-shell-v4'], { cachedUrl });
+      await expect(request(h)).rejects.toThrow('Aucun shell hors ligne vérifié');
+    }
+  });
+  it('actualise aussi le shell légitime sur l’origine Cloudflare TEST', async () => {
+    const origin = 'https://cv-drive-test-ipoower.pages.dev';
+    const res = response(true, 'text/html; charset=utf-8', origin + '/index.html');
+    const h = harness([], { origin, scope: origin + '/', fetch: async () => res });
+    expect(await request(h, { ...navigation, url: origin + '/' })).toBe(res);
+    expect(h.written).toEqual([{ cache: 'cv-shell-v4', request: './index.html' }]);
   });
   it('met en cache les assets du seul chemin applicatif et uniquement après réponse valide', async () => {
     const res = response(true, 'text/javascript'), h = harness(['twrc-shell-v17'], { fetch: async () => res, hit: false });
