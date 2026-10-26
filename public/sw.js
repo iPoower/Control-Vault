@@ -7,6 +7,9 @@ const CACHE_PREFIX = 'cv-shell-';
 // Renouveler le namespace protège contre un ancien shell déjà remplacé par une page annexe.
 // La migration efface uniquement les anciens caches cv-shell-, jamais les autres applications.
 const VERSION = `${CACHE_PREFIX}v4`;
+// Vite remplit cette liste avec les noms réellement produits (JS/CSS/polices).
+// Sans eux le HTML seul ne permet pas un premier redémarrage hors ligne.
+const BUILD_ASSETS = /* @build-assets */ [];
 const APP_PATH = new URL(self.registration.scope).pathname;
 const cached = (request) => caches.open(VERSION).then((cache) => cache.match(request));
 // L'URL finale est la preuve de provenance, après toutes les redirections.
@@ -34,7 +37,7 @@ async function remember(request, response) {
 }
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(VERSION).then((c) => c.addAll(['./', './index.html', './manifest.webmanifest', './icons/icon.svg'])));
+  event.waitUntil(caches.open(VERSION).then((c) => c.addAll(['./', './index.html', './manifest.webmanifest', './icons/icon.svg', ...BUILD_ASSETS])));
   self.skipWaiting();
 });
 
