@@ -14,6 +14,8 @@ const m=JSON.parse(readFileSync(join(site,'fixture-manifest.json'),'utf8'));
 const sha=process.env.BUILD_SHA;
 check(receipt.sourceSha===sha && v.sha===sha && m.sourceSha===sha,'source SHA mismatch');
 check(receipt.googleEnabled===Boolean(process.env.FORTRESS_TEST_GOOGLE_CONFIG),'configuration mismatch');
+// The owner configured TEST OAuth: fail closed instead of certifying Google-off artifacts.
+check(receipt.googleEnabled===true,'Google TEST config missing or disabled: refused');
 check(v.googleEnabled===receipt.googleEnabled && m.googleEnabled===receipt.googleEnabled,'Google config mismatch');
 for(const obj of [v,m])check(obj.environment==='isolated-test' && obj.fixtureOnly===true,'not synthetic TEST');
 check(m.raceOrigin==='https://rc-drive-test-ipoower.pages.dev' && m.vaultOrigin==='https://cv-drive-test-ipoower.pages.dev','origin mismatch');
