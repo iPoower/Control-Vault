@@ -31,6 +31,43 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  fortress-test-bundle:
+    name: FORTRESS TEST - isolated public config bundle
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'test/fortress-drive-execution-20261026'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Configure Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install pinned dependencies
+        run: npm ci --no-audit --no-fund
+      - id: fortress
+        name: Build and attest Google-enabled fake-only TEST
+        env:
+          BUILD_SHA: ${{ github.event.pull_request.head.sha }}
+          FORTRESS_TEST_GOOGLE_CONFIG: ${{ vars.FORTRESS_TEST_GOOGLE_CONFIG }}
+          GOOGLE_DRIVE_CONFIG: ${{ vars.FORTRESS_TEST_GOOGLE_CONFIG }}
+        run: |
+          node scripts/build-drive-test.mjs > "$RUNNER_TEMP/fortress-build-receipt.json"
+          node scripts/verify-fortress-artifact.mjs "$RUNNER_TEMP/fortress-build-receipt.json"
+      - name: Archive attested synthetic TEST only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fortress-control-vault-test-${{ github.event.pull_request.head.sha }}
+          path: ${{ steps.fortress.outputs.site_dir }}/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
   codeql:
     name: CodeQL JavaScript/TypeScript
     runs-on: ubuntu-24.04
