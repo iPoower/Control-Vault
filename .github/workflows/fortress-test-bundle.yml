@@ -1,0 +1,46 @@
+name: FORTRESS TEST - attested synthetic bundle
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+permissions:
+  contents: read
+concurrency:
+  group: fortress-bundle-${{ github.event.pull_request.head.sha }}
+  cancel-in-progress: true
+jobs:
+  bundle:
+    if: github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'test/fortress-drive-execution-')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact PR head, never merge ref
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Configure Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Dependencies from lockfile
+        run: npm ci --no-audit --no-fund
+      - id: verify
+        name: Build fake-only TEST and verify every SHA-256
+        env:
+          BUILD_SHA: ${{ github.event.pull_request.head.sha }}
+          FORTRESS_TEST_GOOGLE_CONFIG: ${{ vars.FORTRESS_TEST_GOOGLE_CONFIG }}
+          GOOGLE_DRIVE_CONFIG: ${{ vars.FORTRESS_TEST_GOOGLE_CONFIG }}
+        run: |
+          node scripts/build-drive-test.mjs > "$RUNNER_TEMP/fortress-build-receipt.json"
+          node scripts/verify-fortress-artifact.mjs "$RUNNER_TEMP/fortress-build-receipt.json"
+      - name: Upload verified synthetic TEST bundle only
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: fortress-control-vault-test-${{ github.event.pull_request.head.sha }}
+          path: ${{ steps.verify.outputs.site_dir }}/
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 14
+
+# No deploy, secrets, production environments, real data, OAuth or real Drive calls.
