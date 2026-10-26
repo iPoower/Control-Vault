@@ -15,7 +15,7 @@ let cfg = null;
 try { if (text) cfg = GoogleDriveSession.config(JSON.parse(text), VAULT); } catch { throw new Error('Configuration publique TEST invalide.'); }
 if (cfg && (cfg.raceOrigin !== RACE || cfg.vaultOrigin !== VAULT)) throw new Error('Origines TEST exactes requises.');
 const base = fs.mkdtempSync(path.join(ROOT, '.drive-test-profile-')), site = path.join(base, 'site');
-try { execFileSync(process.execPath, ['node_modules/vite/bin/vite.js', 'build'], { cwd: ROOT, env: { ...process.env, VAULT_OUT: site, BUILD_SHA: sha, VAULT_DEDICATED_BUILD: '1', GOOGLE_DRIVE_CONFIG: text }, stdio: 'pipe', timeout: 120000 }); }
+try { execFileSync(process.execPath, ['node_modules/vite/bin/vite.js', 'build', '--mode', 'fortress-test'], { cwd: ROOT, env: { ...process.env, VAULT_OUT: site, BUILD_SHA: sha, VAULT_DEDICATED_BUILD: '1', GOOGLE_DRIVE_CONFIG: text }, stdio: 'pipe', timeout: 120000 }); }
 catch { throw new Error('Build TEST refusé ; aucune sortie brute affichée.'); }
 const p = name => path.join(site, name);
 let html = fs.readFileSync(p('index.html'), 'utf8');

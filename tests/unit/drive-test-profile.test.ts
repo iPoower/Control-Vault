@@ -12,6 +12,10 @@ it('publie uniquement un profil TEST identifié, vérifiable et fermé sans clie
   const manifest = JSON.parse(readFileSync(join(data.site, 'fixture-manifest.json'), 'utf8'));
   expect(manifest.fixtureOnly).toBe(true); expect(manifest.sourceSha).toBe('a'.repeat(40)); expect(manifest.googleEnabled).toBe(false);
   expect(readFileSync(join(data.site, 'index.html'), 'utf8')).toContain('TEST — DONNÉES FICTIVES UNIQUEMENT');
+  const scripts = Object.keys(manifest.files).filter(name => name.endsWith('.js'));
+  const code = scripts.map(name => readFileSync(join(data.site, name), 'utf8')).join('\n');
+  expect(code).not.toMatch(/https:\/\/(?:race-control-ipoower\.pages\.dev|ipoower\.github\.io\/Reconversion-Control)\//);
+  expect(code).toContain('https://rc-drive-test-ipoower.pages.dev/');
   expect(readFileSync(join(data.site, 'drive-config.json'), 'utf8')).toBe('null');
   for (const [name, hash] of Object.entries(manifest.files)) expect(createHash('sha256').update(readFileSync(join(data.site, name))).digest('hex')).toBe(hash);
   expect(run(data.site)).toEqual([]);
