@@ -4,7 +4,9 @@
 // CacheStorage est partagé par toutes les applications d'une même origine GitHub Pages.
 // Ne jamais supprimer les caches Race Control ou les caches tiers.
 const CACHE_PREFIX = 'cv-shell-';
-const VERSION = `${CACHE_PREFIX}v3`;
+// Renouveler le namespace protège contre un ancien shell déjà remplacé par une page annexe.
+// La migration efface uniquement les anciens caches cv-shell-, jamais les autres applications.
+const VERSION = `${CACHE_PREFIX}v4`;
 const APP_PATH = new URL(self.registration.scope).pathname;
 const cached = (request) => caches.open(VERSION).then((cache) => cache.match(request));
 async function remember(request, response) {
