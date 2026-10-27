@@ -346,7 +346,19 @@ async function refreshOfflineDiagnostic() {
 }
 if (testDiagnostic) {
   replace(offlineDiagnostic, icon('info'), h('p', null, 'Contrôle hors ligne : vérification en cours.'));
-  if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('controllerchange', () => void refreshOfflineDiagnostic());
+  if ('serviceWorker' in navigator) {
+    let watchedController: ServiceWorker | null = null;
+    const watchController = () => {
+      const controller = navigator.serviceWorker.controller;
+      if (controller && controller !== watchedController) {
+        watchedController = controller;
+        controller.addEventListener('statechange', () => void refreshOfflineDiagnostic());
+      }
+      void refreshOfflineDiagnostic();
+    };
+    navigator.serviceWorker.addEventListener('controllerchange', watchController);
+    watchController();
+  }
   window.addEventListener('pageshow', () => void refreshOfflineDiagnostic());
   window.setTimeout(() => void refreshOfflineDiagnostic(), 12000);
 }

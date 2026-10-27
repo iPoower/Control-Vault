@@ -1,0 +1,42 @@
+name: FORTRESS TEST - diagnostic hors ligne WebKit
+on:
+  pull_request:
+    paths:
+      - 'src/main.ts'
+      - 'src/services/offline-diagnostic.ts'
+      - 'tests/e2e/offline-diagnostic.spec.ts'
+      - '.github/workflows/fortress-offline-diagnostic.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fortress-offline-diagnostic-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  native-webkit:
+    if: github.event.pull_request.head.ref == 'test/fortress-final-acceptance-ios-offline-diagnostic-20261027'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    container:
+      image: mcr.microsoft.com/playwright:v1.56.1-noble
+      options: --ipc=host
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+      - name: Dépendances verrouillées
+        run: npm ci --no-audit --no-fund
+      - name: Build de fixture
+        run: npm run build
+      - name: Deux profils WebKit avec service worker et cache natifs
+        run: |
+          npx playwright test tests/e2e/offline-diagnostic.spec.ts -g 'diagnostic : Service Worker et CacheStorage natifs' --project=webkit-iphone-11-pro-max --project=webkit-desktop
+        env:
+          CI: '1'

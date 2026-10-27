@@ -80,7 +80,13 @@ test('diagnostic : Service Worker et CacheStorage natifs, puis rechargement sans
       if (!navigator.serviceWorker.controller) await new Promise<void>((done) => navigator.serviceWorker.addEventListener('controllerchange', () => done(), { once: true }));
       localStorage.setItem('fixture-cv-diagnostic', 'fictif');
     });
-    await expect(page.locator('#offline-diagnostic')).toHaveAttribute('data-diagnostic', 'local-elements-present');
+    const nativeState = await page.evaluate(async () => {
+      const reg = await navigator.serviceWorker.getRegistration(new URL('./', location.href).href);
+      return { expectedScope: new URL('./', location.href).href, actualScope: reg?.scope, activeState: reg?.active?.state,
+        activeScript: reg?.active?.scriptURL, controllerState: navigator.serviceWorker.controller?.state, controllerScript: navigator.serviceWorker.controller?.scriptURL };
+    });
+    console.log('NATIVE_WORKER_DIAGNOSTIC', JSON.stringify(nativeState));
+    await expect(page.locator('#offline-diagnostic')).toHaveAttribute('data-diagnostic', 'local-elements-present', { timeout: 15000 });
     await new Promise<void>((done) => { server.close(() => done()); server.closeAllConnections(); });
     closed = true;
     await page.reload({ waitUntil: 'domcontentloaded' });
