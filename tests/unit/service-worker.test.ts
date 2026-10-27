@@ -11,7 +11,7 @@ type TestEvent = {
   request?: { method: string; mode: string; url: string };
 };
 
-function harness(initial: string[], options: { fetch?: () => Promise<unknown>; hit?: boolean; failPut?: boolean; origin?: string; scope?: string; cachedUrl?: string } = {}) {
+function harness(initial: string[], options: { fetch?: (input?: unknown) => Promise<unknown>; hit?: boolean; failPut?: boolean; origin?: string; scope?: string; cachedUrl?: string; redirectRoot?: boolean; redirectCached?: boolean } = {}) {
   const names = new Set(initial);
   const deleted: string[] = [];
   const listeners = new Map<string, (event: TestEvent) => void>();
@@ -37,7 +37,7 @@ function harness(initial: string[], options: { fetch?: () => Promise<unknown>; h
       names.add(key);
       return { addAll: async (_urls: string[]) => {},
         put: async (request: unknown) => { if (options.failPut) throw new Error('Quota fictif'); written.push({ cache: key, request }); },
-        match: async (request: string) => { matched.push(key + ':' + request); return options.hit === false ? undefined : { offlineShell: true, ok: true, url: options.cachedUrl ?? self.registration.scope, headers: { get: () => 'text/html' } }; } };
+        match: async (request: string) => { matched.push(key + ':' + request); return options.hit === false ? undefined : { offlineShell: true, ok: true, redirected: request === './' ? !!options.redirectRoot : !!options.redirectCached, url: options.cachedUrl ?? self.registration.scope, headers: { get: () => 'text/html' } }; } };
     },
     match: async (key: string) => {
       matched.push(key);
@@ -56,6 +56,32 @@ function harness(initial: string[], options: { fetch?: () => Promise<unknown>; h
 }
 
 describe('Service Worker : isolation interprojets', () => {
+  it('installe le shell sous index.html depuis la racine non redirigée', async () => {
+    const h = harness([]); let pending: Promise<unknown> | undefined;
+    h.listeners.get('install')?.({ waitUntil: p => { pending = p; } });
+    await pending;
+    expect(h.matched).toContain('cv-shell-v4:./');
+    expect(h.written).toEqual([{ cache: 'cv-shell-v4', request: './index.html' }]);
+  });
+  it('refuse une racine redirigée lors de l’installation', async () => {
+    const h = harness([], { redirectRoot: true }); let pending: Promise<unknown> | undefined;
+    h.listeners.get('install')?.({ waitUntil: p => { pending = p; } });
+    await expect(pending).rejects.toThrow(/shell|racine|redirect/i);
+  });
+  it('ne sert pas une ancienne réponse redirigée comme navigation hors ligne', async () => {
+    const h = harness([], { redirectCached: true });
+    let pending: Promise<unknown> | undefined;
+    h.listeners.get('fetch')?.({ request: {method:'GET',mode:'navigate',url:'https://ipoower.github.io/Control-Vault/'}, respondWith:p=>{ pending=p; } });
+    await expect(pending).rejects.toThrow('Aucun shell hors ligne vérifié');
+  });
+  it('demande directement la racine réseau pour un alias index.html', async () => {
+    let target: unknown;
+    const h = harness([], { fetch: async input => { target = input; return {ok:true,url:'https://ipoower.github.io/Control-Vault/',headers:{get:()=> 'text/html'},clone(){return this;}}; } });
+    let pending: Promise<unknown> | undefined;
+    h.listeners.get('fetch')?.({ request: {method:'GET',mode:'navigate',url:'https://ipoower.github.io/Control-Vault/index.html?fixture=1'}, respondWith:p=>{ pending=p; } });
+    await pending;
+    expect(target).toBe('https://ipoower.github.io/Control-Vault/?fixture=1');
+  });
   it('ne supprime que les ANCIENS caches Control Vault et préserve Race Control et les autres applications', async () => {
     const h = harness(['cv-shell-v0', 'cv-shell-v1', 'cv-shell-v2', 'cv-shell-v3', 'cv-shell-v4', 'twrc-shell-v17', 'twrc-weather-v4', 'unrelated-cache']);
     const activate = h.listeners.get('activate');
