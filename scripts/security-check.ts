@@ -53,7 +53,9 @@ export function checkCsp(csp: string, opts: { requireFrameAncestors: boolean }):
   if (/'unsafe-inline'/.test(script)) problems.push("'unsafe-inline' interdit dans script-src");
   if (/(^|\s)\*(\s|;|$)/.test(csp)) problems.push('joker * interdit');
   if (!dir('object-src')?.includes("'none'")) problems.push("object-src 'none' requis");
-  if (!dir('base-uri')) problems.push('base-uri requis');
+  const base = dir('base-uri');
+  if (!base) problems.push('base-uri requis');
+  else if (base.split(/\s+/).join(' ') !== "base-uri 'none'") problems.push("base-uri 'none' requis");
   if (opts.requireFrameAncestors && !dir('frame-ancestors')?.includes("'none'")) problems.push("frame-ancestors 'none' requis");
   return problems;
 }
