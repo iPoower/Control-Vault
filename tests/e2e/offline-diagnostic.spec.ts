@@ -14,7 +14,7 @@ test.beforeAll(() => {
   });
 });
 
-for (const scenario of ['registration-refused', 'cache-missing', 'local-elements-present'] as const) {
+for (const scenario of ['registration-refused', 'cache-missing', 'local-elements-present', 'storage-denied', 'registration-stalled'] as const) {
   test(`diagnostic hors ligne TEST : ${scenario}`, async ({ page }) => {
     await page.addInitScript((mode) => {
       const scope = 'https://cv.fixture.test/';
@@ -22,16 +22,18 @@ for (const scenario of ['registration-refused', 'cache-missing', 'local-elements
       const registration = { scope, active: worker, installing: null, addEventListener() {} };
       Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: {
         controller: mode === 'registration-refused' ? null : worker,
-        getRegistration: async () => mode === 'registration-refused' ? undefined : registration,
+        getRegistration: async () => mode === 'registration-stalled' ? new Promise(() => {}) : mode === 'registration-refused' ? undefined : registration,
         register: async () => { if (mode === 'registration-refused') throw Error('fixture refused'); return registration; },
         addEventListener() {},
       } });
-      Object.defineProperty(window, 'caches', { configurable: true, value: {
+      const cacheFixture = {
         keys: async () => mode === 'cache-missing' ? [] : ['cv-shell-v4'],
         match: async (key: string) => key.endsWith('/index.html')
           ? { ok: true, redirected: false, url: scope, headers: { get: () => 'text/html' } }
           : { ok: true, redirected: false },
-      } });
+      };
+      if (mode === 'storage-denied') Object.defineProperty(window, 'caches', { configurable: true, get() { throw Error('fixture denied'); } });
+      else Object.defineProperty(window, 'caches', { configurable: true, value: cacheFixture });
     }, scenario);
     await page.route('**/*', async (route) => {
       const url = new URL(route.request().url());
@@ -45,8 +47,8 @@ for (const scenario of ['registration-refused', 'cache-missing', 'local-elements
     await page.goto('https://cv.fixture.test/');
     await expect(page.locator('#hero-title')).toBeVisible();
     const diagnostic = page.locator('#offline-diagnostic');
-    const expected = scenario === 'registration-refused' ? 'not-registered' : scenario;
-    await expect(diagnostic).toHaveAttribute('data-diagnostic', expected);
+    const expected = scenario === 'registration-refused' ? 'not-registered' : (scenario === 'storage-denied' || scenario === 'registration-stalled') ? 'unavailable' : scenario;
+    await expect(diagnostic).toHaveAttribute('data-diagnostic', expected, { timeout: 10000 });
     if (scenario === 'local-elements-present') await expect(diagnostic).toContainText('Redémarrage hors ligne à vérifier.');
     else await expect(diagnostic).not.toContainText('service actif et fichiers');
   });

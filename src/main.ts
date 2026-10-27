@@ -328,12 +328,18 @@ const diagnosticText: Record<OfflineDiagnostic, string> = {
 async function refreshOfflineDiagnostic() {
   if (!testDiagnostic) return;
   const revision = ++diagnosticRevision;
-  const scope = new URL('./', location.href);
-  const assets = [...document.querySelectorAll<HTMLScriptElement | HTMLLinkElement>('script[src], link[rel="stylesheet"][href]')]
-    .map((element) => new URL(element instanceof HTMLScriptElement ? element.src : element.href, scope))
-    .filter((url) => url.origin === scope.origin && url.pathname.startsWith(scope.pathname + 'assets/'))
-    .map((url) => url.href);
-  const result = await inspectOfflineElements('serviceWorker' in navigator ? navigator.serviceWorker : undefined, 'caches' in window ? window.caches : undefined, scope.href, assets);
+  let timer = 0;
+  const check = Promise.resolve().then(async () => {
+    const scope = new URL('./', location.href);
+    const assets = [...document.querySelectorAll<HTMLScriptElement | HTMLLinkElement>('script[src], link[rel="stylesheet"][href]')]
+      .map((element) => new URL(element instanceof HTMLScriptElement ? element.src : element.href, scope))
+      .filter((url) => url.origin === scope.origin && url.pathname.startsWith(scope.pathname + 'assets/'))
+      .map((url) => url.href);
+    return inspectOfflineElements('serviceWorker' in navigator ? navigator.serviceWorker : undefined, 'caches' in window ? window.caches : undefined, scope.href, assets);
+  }).catch((): OfflineDiagnostic => 'unavailable');
+  const timeout = new Promise<OfflineDiagnostic>((done) => { timer = window.setTimeout(() => done('unavailable'), 6000); });
+  const result = await Promise.race([check, timeout]);
+  window.clearTimeout(timer);
   if (revision !== diagnosticRevision) return;
   offlineDiagnostic.dataset.diagnostic = result;
   replace(offlineDiagnostic, icon(result === 'local-elements-present' ? 'info' : 'alert'), h('p', null, diagnosticText[result]));
