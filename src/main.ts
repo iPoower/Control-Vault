@@ -20,6 +20,7 @@ import { securityView } from './views/security';
 import { settingsView } from './views/settings';
 import { driveView } from './views/drive';
 import { connectedDrive } from './services/connected-drive';
+import { inspectOfflineElements, type OfflineDiagnostic } from './services/offline-diagnostic';
 import type { View, ViewContext } from './views/types';
 
 // ─── Routes ────────────────────────────────────────────────────────────────
@@ -63,6 +64,8 @@ const sideNav = h('nav', { class: 'side-nav', 'aria-label': 'Navigation principa
 const tabbar = h('nav', { class: 'tabbar', 'aria-label': 'Navigation principale' });
 const sideFoot = h('div', { class: 'side-foot' });
 const topbar = h('header', { class: 'topbar' }, h('span', { class: 'brand-mini mobile-only' }, logo(26)), topTitle, topStatus, searchMobile);
+const testDiagnostic = import.meta.env.MODE === 'fortress-test';
+const offlineDiagnostic = h('div', { id: 'offline-diagnostic', class: 'banner banner-demo', role: 'status', 'aria-live': 'polite' });
 
 const shell = h(
   'div',
@@ -75,7 +78,7 @@ const shell = h(
     sideNav,
     sideFoot,
   ),
-  h('div', { class: 'main-col' }, topbar, banners, viewEl,
+  h('div', { class: 'main-col' }, topbar, testDiagnostic && offlineDiagnostic, banners, viewEl,
     h('nav', { class: 'app-links', 'aria-label': 'Mes applications' },
       h('strong', null, 'Mes applications'),
       h('div', null,
@@ -308,6 +311,51 @@ boot()
   });
 
 // Service worker : uniquement en production et hors aperçu intégré.
-if ('serviceWorker' in navigator && import.meta.env.PROD && location.protocol === 'https:' && !location.hostname.endsWith('claude.ai') && !location.hostname.includes('claudeusercontent')) {
+const canRegisterWorker = 'serviceWorker' in navigator && import.meta.env.PROD && location.protocol === 'https:' && !location.hostname.endsWith('claude.ai') && !location.hostname.includes('claudeusercontent');
+let diagnosticRevision = 0;
+const diagnosticText: Record<OfflineDiagnostic, string> = {
+  'unsupported': 'Contrôle hors ligne : navigateur non compatible ou stockage indisponible.',
+  'not-registered': 'Contrôle hors ligne : préparation non confirmée.',
+  'not-active': 'Contrôle hors ligne : préparation non terminée.',
+  'not-controlling': 'Contrôle hors ligne : service non actif sur cette page.',
+  'wrong-worker': 'Contrôle hors ligne : service inattendu.',
+  'cache-missing': 'Contrôle hors ligne : cache de l’interface absent.',
+  'shell-invalid': 'Contrôle hors ligne : page locale absente ou non vérifiée.',
+  'assets-missing': 'Contrôle hors ligne : fichiers de l’interface manquants.',
+  'local-elements-present': 'Contrôle local : service actif et fichiers de l’interface présents. Redémarrage hors ligne à vérifier.',
+  'unavailable': 'Contrôle hors ligne : vérification indisponible.',
+};
+async function refreshOfflineDiagnostic() {
+  if (!testDiagnostic) return;
+  const revision = ++diagnosticRevision;
+  const scope = new URL('./', location.href);
+  const assets = [...document.querySelectorAll<HTMLScriptElement | HTMLLinkElement>('script[src], link[rel="stylesheet"][href]')]
+    .map((element) => new URL(element instanceof HTMLScriptElement ? element.src : element.href, scope))
+    .filter((url) => url.origin === scope.origin && url.pathname.startsWith(scope.pathname + 'assets/'))
+    .map((url) => url.href);
+  const result = await inspectOfflineElements('serviceWorker' in navigator ? navigator.serviceWorker : undefined, 'caches' in window ? window.caches : undefined, scope.href, assets);
+  if (revision !== diagnosticRevision) return;
+  offlineDiagnostic.dataset.diagnostic = result;
+  replace(offlineDiagnostic, icon(result === 'local-elements-present' ? 'info' : 'alert'), h('p', null, diagnosticText[result]));
+}
+if (testDiagnostic) {
+  replace(offlineDiagnostic, icon('info'), h('p', null, 'Contrôle hors ligne : vérification en cours.'));
+  if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('controllerchange', () => void refreshOfflineDiagnostic());
+  window.addEventListener('pageshow', () => void refreshOfflineDiagnostic());
+  window.setTimeout(() => void refreshOfflineDiagnostic(), 12000);
+}
+if (canRegisterWorker && !testDiagnostic) {
   window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+} else if (canRegisterWorker) {
+  const registerWorker = () => {
+    void navigator.serviceWorker.register('./sw.js').then((registration) => {
+      const watch = () => registration.installing?.addEventListener('statechange', () => void refreshOfflineDiagnostic());
+      registration.addEventListener('updatefound', watch);
+      watch();
+      void refreshOfflineDiagnostic();
+    }).catch(() => void refreshOfflineDiagnostic());
+  };
+  window.addEventListener('load', registerWorker, { once: true });
+} else if (testDiagnostic) {
+  void refreshOfflineDiagnostic();
 }
