@@ -14,18 +14,20 @@ test.beforeAll(() => {
   });
 });
 
-for (const scenario of ['registration-refused', 'cache-missing', 'local-elements-present', 'storage-denied', 'registration-stalled'] as const) {
+for (const scenario of ['registration-refused', 'cache-missing', 'local-elements-present', 'storage-denied', 'worker-denied', 'registration-stalled'] as const) {
   test(`diagnostic hors ligne TEST : ${scenario}`, async ({ page }) => {
     await page.addInitScript((mode) => {
       const scope = 'https://cv.fixture.test/';
       const worker = { state: 'activated', scriptURL: scope + 'sw.js', addEventListener() {} };
       const registration = { scope, active: worker, installing: null, addEventListener() {} };
-      Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: {
+      const workerFixture = {
         controller: mode === 'registration-refused' ? null : worker,
         getRegistration: async () => mode === 'registration-stalled' ? new Promise(() => {}) : mode === 'registration-refused' ? undefined : registration,
         register: async () => { if (mode === 'registration-refused') throw Error('fixture refused'); return registration; },
         addEventListener() {},
-      } });
+      };
+      if (mode === 'worker-denied') Object.defineProperty(navigator, 'serviceWorker', { configurable: true, get() { throw Error('fixture denied'); } });
+      else Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: workerFixture });
       const cacheFixture = {
         keys: async () => mode === 'cache-missing' ? [] : ['cv-shell-v4'],
         match: async (key: string) => key.endsWith('/index.html')
@@ -47,7 +49,7 @@ for (const scenario of ['registration-refused', 'cache-missing', 'local-elements
     await page.goto('https://cv.fixture.test/');
     await expect(page.locator('#hero-title')).toBeVisible();
     const diagnostic = page.locator('#offline-diagnostic');
-    const expected = scenario === 'registration-refused' ? 'not-registered' : (scenario === 'storage-denied' || scenario === 'registration-stalled') ? 'unavailable' : scenario;
+    const expected = scenario === 'registration-refused' ? 'not-registered' : (scenario === 'storage-denied' || scenario === 'worker-denied' || scenario === 'registration-stalled') ? 'unavailable' : scenario;
     await expect(diagnostic).toHaveAttribute('data-diagnostic', expected, { timeout: 10000 });
     if (scenario === 'local-elements-present') await expect(diagnostic).toContainText('Redémarrage hors ligne à vérifier.');
     else await expect(diagnostic).not.toContainText('service actif et fichiers');

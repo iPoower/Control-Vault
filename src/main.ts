@@ -347,17 +347,22 @@ async function refreshOfflineDiagnostic() {
 if (testDiagnostic) {
   replace(offlineDiagnostic, icon('info'), h('p', null, 'Contrôle hors ligne : vérification en cours.'));
   if ('serviceWorker' in navigator) {
-    let watchedController: ServiceWorker | null = null;
-    const watchController = () => {
-      const controller = navigator.serviceWorker.controller;
-      if (controller && controller !== watchedController) {
-        watchedController = controller;
-        controller.addEventListener('statechange', () => void refreshOfflineDiagnostic());
-      }
-      void refreshOfflineDiagnostic();
-    };
-    navigator.serviceWorker.addEventListener('controllerchange', watchController);
-    watchController();
+    try {
+      const workers = navigator.serviceWorker;
+      let watchedController: ServiceWorker | null = null;
+      const watchController = () => {
+        try {
+          const controller = workers.controller;
+          if (controller && controller !== watchedController) {
+            watchedController = controller;
+            controller.addEventListener('statechange', () => void refreshOfflineDiagnostic());
+          }
+        } catch { /* Un diagnostic ne doit jamais empêcher l'ouverture de l'application. */ }
+        void refreshOfflineDiagnostic();
+      };
+      workers.addEventListener('controllerchange', watchController);
+      watchController();
+    } catch { void refreshOfflineDiagnostic(); }
   }
   window.addEventListener('pageshow', () => void refreshOfflineDiagnostic());
   window.setTimeout(() => void refreshOfflineDiagnostic(), 12000);
@@ -366,12 +371,14 @@ if (canRegisterWorker && !testDiagnostic) {
   window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
 } else if (canRegisterWorker) {
   const registerWorker = () => {
-    void navigator.serviceWorker.register('./sw.js').then((registration) => {
-      const watch = () => registration.installing?.addEventListener('statechange', () => void refreshOfflineDiagnostic());
-      registration.addEventListener('updatefound', watch);
-      watch();
-      void refreshOfflineDiagnostic();
-    }).catch(() => void refreshOfflineDiagnostic());
+    try {
+      void navigator.serviceWorker.register('./sw.js').then((registration) => {
+        const watch = () => registration.installing?.addEventListener('statechange', () => void refreshOfflineDiagnostic());
+        registration.addEventListener('updatefound', watch);
+        watch();
+        void refreshOfflineDiagnostic();
+      }).catch(() => void refreshOfflineDiagnostic());
+    } catch { void refreshOfflineDiagnostic(); }
   };
   window.addEventListener('load', registerWorker, { once: true });
 } else if (testDiagnostic) {
