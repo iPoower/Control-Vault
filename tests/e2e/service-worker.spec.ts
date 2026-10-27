@@ -4,12 +4,13 @@ import { readFile } from 'node:fs/promises';
 import { resolve, extname } from 'node:path';
 import { expect, test } from '@playwright/test';
 
-test('première visite : le build complet redémarre hors ligne sans second chargement en ligne', async ({ page }) => {
+for (const redirectsIndex of [false, true]) test(`première visite : redémarrage hors ligne après ${redirectsIndex ? 'redirection HTTP index vers racine' : 'réponse directe'}`, async ({ page }) => {
   const root = resolve('dist');
   const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2' };
   const server = createServer(async (req, res) => {
     try {
       const name = new URL(req.url || '/', 'http://localhost').pathname;
+      if (redirectsIndex && name === '/index.html') { res.writeHead(308, { Location: '/' }); res.end(); return; }
       const file = resolve(root, '.' + (name === '/' ? '/index.html' : name));
       if (!file.startsWith(root + '/')) throw Error('path');
       const bytes = await readFile(file);
@@ -37,11 +38,19 @@ test('première visite : le build complet redémarre hors ligne sans second char
       return (await cache.keys()).map(k => new URL(k.url).pathname);
     });
     expect(keys.some(k => /\/assets\/.*\.js$/.test(k)), 'JS du build disponible dès la première installation').toBe(true);
+    const shell = await page.evaluate(async () => {
+      const response = await (await caches.open('cv-shell-v4')).match('./index.html');
+      return response && { redirected: response.redirected, url: response.url };
+    });
+    expect(shell?.redirected).toBe(false);
+    expect(shell?.url).toBe(origin + '/');
     // Couper le SERVEUR teste une vraie indisponibilité TCP, sans dépendre
     // de l'émulation setOffline de Playwright/WebKit.
     await new Promise<void>(done => { server.close(() => done()); server.closeAllConnections(); });
     closed = true;
     await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#hero-title')).toBeVisible();
+    await page.goto(origin + '/index.html', { waitUntil: 'domcontentloaded' });
     await expect(page.locator('#hero-title')).toBeVisible();
     await expect(page.getByText('Démonstration : données fictives')).toBeVisible();
     await page.reload({ waitUntil: 'domcontentloaded' });
