@@ -1,6 +1,7 @@
 // Rendu de la version TEST avec stockage fictif ; aucun Google ni donnée réelle.
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { extname, join, resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
@@ -50,3 +51,42 @@ for (const scenario of ['registration-refused', 'cache-missing', 'local-elements
     else await expect(diagnostic).not.toContainText('service actif et fichiers');
   });
 }
+
+test('diagnostic : Service Worker et CacheStorage natifs, puis rechargement sans réseau', async ({ page }) => {
+  test.setTimeout(60000);
+  const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2' };
+  const server = createServer((req, res) => {
+    const url = new URL(req.url || '/', 'http://127.0.0.1');
+    const filename = resolve(root, '.' + (url.pathname === '/' ? '/index.html' : url.pathname));
+    if (!filename.startsWith(root + '/')) { res.writeHead(403); res.end(); return; }
+    try { res.writeHead(200, { 'Content-Type': types[extname(filename)] || 'application/octet-stream', 'Cache-Control': 'no-store' }); res.end(readFileSync(filename)); }
+    catch { res.writeHead(404); res.end(); }
+  });
+  await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw Error('fixture server');
+  const origin = `http://127.0.0.1:${address.port}`;
+  let closed = false;
+  try {
+    await page.goto(origin + '/');
+    await expect(page.locator('#hero-title')).toBeVisible();
+    // Sur loopback HTTP, l'application ne s'auto-enregistre pas. C'est le vrai
+    // fichier du build ; enregistrer ici explicitement pour tester le cache natif.
+    await page.evaluate(async () => {
+      await navigator.serviceWorker.register('./sw.js');
+      await navigator.serviceWorker.ready;
+      if (!navigator.serviceWorker.controller) await new Promise<void>((done) => navigator.serviceWorker.addEventListener('controllerchange', () => done(), { once: true }));
+      localStorage.setItem('fixture-cv-diagnostic', 'fictif');
+    });
+    await expect(page.locator('#offline-diagnostic')).toHaveAttribute('data-diagnostic', 'local-elements-present');
+    await new Promise<void>((done) => { server.close(() => done()); server.closeAllConnections(); });
+    closed = true;
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#hero-title')).toBeVisible();
+    await expect(page.locator('#offline-diagnostic')).toHaveAttribute('data-diagnostic', 'local-elements-present');
+    await expect(page.locator('#offline-diagnostic')).toContainText('Redémarrage hors ligne à vérifier.');
+    expect(await page.evaluate(() => localStorage.getItem('fixture-cv-diagnostic'))).toBe('fictif');
+  } finally {
+    if (!closed) await new Promise<void>((done) => { server.close(() => done()); server.closeAllConnections(); });
+  }
+});
