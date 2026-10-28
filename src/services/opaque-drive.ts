@@ -159,7 +159,7 @@ export class OpaqueDrive {
       if (next) params.set('pageToken', next);
       const page = await this.json(await this.request(API + '/files?' + params, { signal }, epoch), signal);
       this.check(epoch, signal);
-      if (page.incompleteSearch !== false || !Array.isArray(page.files) || page.files.length > 100) return fail('incomplete');
+      if ((page.incompleteSearch !== undefined && page.incompleteSearch !== false) || !Array.isArray(page.files) || page.files.length > 100) return fail('incomplete');
       for (const f of page.files) {
         if (!object(f) || typeof f.id !== 'string' || typeof f.name !== 'string' || !f.name || f.name.length > 1024 ||
           typeof f.createdTime !== 'string' || f.createdTime.length > 40 || !Number.isFinite(Date.parse(f.createdTime)) ||
@@ -211,7 +211,7 @@ export class OpaqueDrive {
         pageSize: '1000', fields: 'nextPageToken,incompleteSearch,files(id,size,trashed,parents,appProperties)' });
       if (next) params.set('pageToken', next);
       const page = await this.json(await this.request(API + '/files?' + params, { signal }, epoch), signal);
-      if (page.incompleteSearch !== false || !Array.isArray(page.files)) return fail('incomplete');
+      if ((page.incompleteSearch !== undefined && page.incompleteSearch !== false) || !Array.isArray(page.files)) return fail('incomplete');
       for (const f of page.files) {
         if (!object(f) || typeof f.id !== 'string' || f.trashed === true || !Array.isArray(f.parents) || !f.parents.includes(folder) ||
           !object(f.appProperties) || f.appProperties.cv_contract !== 'rc-key-a1' || !hash(f.appProperties.cv_file) ||
@@ -267,7 +267,7 @@ export class OpaqueDrive {
         pageSize: '1000', fields: 'nextPageToken,incompleteSearch,files(id,size,trashed,parents,appProperties)' });
       if (next) p.set('pageToken', next);
       const page = await this.json(await this.request(API + '/files?' + p, { signal }, epoch), signal);
-      if (page.incompleteSearch !== false || !Array.isArray(page.files)) return fail('incomplete');
+      if ((page.incompleteSearch !== undefined && page.incompleteSearch !== false) || !Array.isArray(page.files)) return fail('incomplete');
       for (const raw of page.files) {
         if (!object(raw) || !Array.isArray(raw.parents) || !raw.parents.includes(folder)) return fail('conflict');
         const v = this.version(raw), old = versions.get(v.fileId);
