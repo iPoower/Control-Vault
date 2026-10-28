@@ -25,8 +25,16 @@ export function driveView(): View {
           !s.prepared ? button('Préparer la connexion Google', () => connectedDrive.prepare()) : button(s.connected ? 'Changer de compte Google' : 'Se connecter à Google', () => connectedDrive.connect()),
           s.connected && !s.accountConfirmed ? button('Confirmer ce compte dédié', () => connectedDrive.confirmAccount()) : null,
           s.connected && s.accountConfirmed ? button('Créer un dossier neuf dédié', () => connectedDrive.newFolder()) : null,
+          s.connected && s.accountConfirmed ? button('Retrouver les dossiers dédiés', () => connectedDrive.listDedicatedFolders()) : null,
           s.connected && s.accountConfirmed ? button('Choisir le dossier Google Drive', () => connectedDrive.chooseFolder()) : null,
           s.connected ? h('button', { class: 'btn', type: 'button', onclick: () => connectedDrive.disconnect() }, 'Déconnecter') : null,
+        ) : null,
+        s.connected && s.accountConfirmed && s.dedicatedFolders.length ? h('section', { 'aria-label': 'Dossiers dédiés autorisés', class: 'stack' },
+          h('p', null, 'Cette liste contient uniquement les dossiers dédiés déjà autorisés pour l’application. Chaque dossier sera relu avant sélection.'),
+          ...s.dedicatedFolders.map(folder => h('div', { class: 'row drive-entry' },
+            h('div', { class: 'row-main' }, h('p', { class: 'row-title wrap' }, folder.name),
+              h('p', { class: 'row-sub' }, 'Créé le ' + new Date(folder.createdTime).toLocaleString('fr-FR') + ' · référence ' + folder.id.slice(-8))),
+            button('Utiliser ce dossier', () => connectedDrive.chooseDedicatedFolder(folder.id)))),
         ) : null,
         s.selected ? h('div', { class: 'btn-row' }, button('Actualiser les versions', () => connectedDrive.refresh()),
           button('Envoyer une copie chiffrée', () => file.click()), file,
@@ -36,7 +44,7 @@ export function driveView(): View {
         (() => { const parents = new Set(s.versions.flatMap(v => v.revision?.parents || [])); const heads = s.versions.filter(v => v.revision && !parents.has(v.revision.id)); return heads.length > 1 ? h('p', { role: 'status' }, 'Plusieurs têtes de révision déclarées : conserver les branches et vérifier le conflit dans Race Control. Control Vault ne les authentifie ni ne les fusionne.') : null; })(),
         h('div', { class: 'panel-body' }, s.versions.length ? s.versions.map(ref => {
           const proof = s.receipts.find(p => p.fileId === ref.fileId && p.fileSha256 === ref.fileSha256);
-          return h('div', { class: 'row' }, h('div', { class: 'row-main' }, h('p', { class: 'row-title wrap' }, ref.revision ? `Révision ${ref.revision.seq} · ${ref.revision.id.slice(0, 8)}` : 'Copie manuelle'),
+          return h('div', { class: 'row drive-entry' }, h('div', { class: 'row-main' }, h('p', { class: 'row-title wrap' }, ref.revision ? `Révision ${ref.revision.seq} · ${ref.revision.id.slice(0, 8)}` : 'Copie manuelle'),
             h('p', { class: 'row-sub wrap' }, `${Math.ceil(ref.size / 1024)} Ko · ${ref.fileSha256.slice(0, 12)} · ${proof ? 'octets vérifiés le ' + new Date(proof.verifiedAt).toLocaleString('fr-FR') : 'non vérifiée'}`)),
             button('Vérifier et télécharger', async () => {
               const bytes = await connectedDrive.download(ref);

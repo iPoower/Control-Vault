@@ -4,7 +4,7 @@ import { readRacePacket, type RacePacket } from '../core/race-packet';
 import { DriveStore } from './drive-store.js';
 import { GoogleDriveSession, type DriveConfig, type DriveSession } from './google-drive-session.js';
 import { OpaqueArchive } from './opaque-archive';
-import { OpaqueDrive, type RemotePacket, type ByteProof } from './opaque-drive';
+import { OpaqueDrive, type RemotePacket, type ByteProof, type DedicatedFolder } from './opaque-drive';
 
 interface Job { binding: string; bytes: Uint8Array; fileId: string | null; sha: string }
 interface Durable { v: 1; job: Job | null; receipts: ByteProof[] }
@@ -18,6 +18,7 @@ function sameJob(a: Job | null, b: Job | null): boolean {
     a.bytes.every((value, i) => value === b.bytes[i]);
 }
 export interface ConnectedState { configured: boolean; prepared: boolean; connected: boolean; selected: boolean; busy: boolean; message: string;
+  dedicatedFolders: DedicatedFolder[];
   versions: RemotePacket[]; receipts: ByteProof[]; recoveryOrigin: string | null; account: string | null; accountConfirmed: boolean; folder: string | null;
   phase: 'WAITING' | 'SENDING' | 'UPLOADED' | 'VERIFIED_BYTES' | 'CONFLICT' | 'SYNC_BLOCKED' | 'ERROR'; pending: boolean; lastOperationAt: number | null }
 export class ConnectedDrive {
@@ -30,7 +31,7 @@ export class ConnectedDrive {
   private listeners = new Set<() => void>();
   private epoch = 0;
   state: ConnectedState = { configured: false, prepared: false, connected: false, selected: false, busy: false,
-    message: 'Connexion réelle non activée sur cette version.', versions: [], receipts: [], recoveryOrigin: null, account: null, accountConfirmed: false, folder: null, phase: 'WAITING', pending: false, lastOperationAt: null };
+    message: 'Connexion réelle non activée sur cette version.', dedicatedFolders: [], versions: [], receipts: [], recoveryOrigin: null, account: null, accountConfirmed: false, folder: null, phase: 'WAITING', pending: false, lastOperationAt: null };
   subscribe(fn: () => void): () => void { this.listeners.add(fn); return () => this.listeners.delete(fn); }
   private change(patch: Partial<ConnectedState>) { this.state = { ...this.state, ...patch }; this.listeners.forEach(fn => fn()); }
   async init() {
@@ -59,19 +60,35 @@ export class ConnectedDrive {
   // Conserver le geste utilisateur : ouvrir Google avant tout await.
   connect() {
     if (!this.session || this.state.busy) return Promise.resolve();
-    this.epoch++; this.selection = null; this.change({ selected: false, account: null, accountConfirmed: false, folder: null, versions: [], receipts: [], phase: 'WAITING' });
+    this.epoch++; this.selection = null; this.change({ selected: false, account: null, accountConfirmed: false, folder: null, dedicatedFolders: [], versions: [], receipts: [], phase: 'WAITING' });
     const promise = this.session.connect();
     return this.action(async epoch => { await promise; this.check(epoch); this.change({ connected: true, account: this.session?.identity?.label || null, accountConfirmed: false, message: 'Compte affiché : confirme explicitement ce compte dédié avant tout accès aux fichiers.' }); });
   }
   confirmAccount() {
     if (!this.session?.identity || this.state.busy) return;
-    try { this.session.confirmAccount(this.session.identity.id); this.change({ accountConfirmed: true, message: 'Compte confirmé. Crée un dossier neuf dédié ou retrouve celui créé par cette application dans Picker.' }); }
+    try { this.session.confirmAccount(this.session.identity.id); this.change({ accountConfirmed: true, message: 'Compte confirmé. Crée un dossier neuf dédié ou retrouve les dossiers déjà autorisés pour cette application.' }); }
     catch { this.change({ phase: 'SYNC_BLOCKED', message: 'Confirmation du compte refusée. Reconnecte le compte dédié.' }); }
   }
   newFolder() {
     if (!this.session || this.state.busy || !this.state.accountConfirmed) return Promise.resolve();
     this.epoch++; this.selection = null; this.change({ selected: false, folder: null, versions: [], receipts: [] });
-    return this.action(async epoch => { await this.session!.newFolder(); this.check(epoch); this.change({ phase: 'WAITING', lastOperationAt: Date.now(), message: 'Dossier neuf dédié créé et relu. Choisis-le maintenant dans Google Picker.' }); });
+    return this.action(async epoch => { await this.session!.newFolder(); this.check(epoch); this.change({ dedicatedFolders: [], phase: 'WAITING', lastOperationAt: Date.now(), message: 'Dossier neuf dédié créé et relu. Retrouve les dossiers dédiés pour le sélectionner.' }); });
+  }
+  async listDedicatedFolders() {
+    if (!this.session || this.state.busy || !this.state.accountConfirmed) return;
+    this.change({ dedicatedFolders: [] });
+    return this.action(async epoch => {
+      const folders = await this.session!.listDedicatedFolders(); this.check(epoch);
+      this.change({ dedicatedFolders: folders, message: folders.length ? 'Dossiers dédiés retrouvés. Choisis explicitement celui à utiliser.' : 'Aucun dossier dédié autorisé trouvé. Crée un dossier neuf, puis actualise cette liste.' });
+    });
+  }
+  chooseDedicatedFolder(id: string) {
+    if (!this.session || this.state.busy || !this.state.accountConfirmed) return Promise.resolve();
+    this.epoch++; this.selection = null; this.change({ selected: false, folder: null, versions: [], receipts: [], phase: 'WAITING' });
+    return this.action(async epoch => {
+      const selection = await this.session!.chooseDedicatedFolder(id); this.check(epoch); this.selection = selection;
+      this.change({ selected: true, folder: selection.folder, versions: [], receipts: [], lastOperationAt: Date.now(), message: 'Dossier dédié relu et sélectionné. Actualise les versions pour les lire.' });
+    });
   }
   chooseFolder() {
     if (!this.session || this.state.busy) return Promise.resolve();
@@ -82,7 +99,7 @@ export class ConnectedDrive {
   }
   disconnect() {
     this.epoch++; this.session?.disconnect(); this.selection = null;
-    this.change({ busy: false, connected: false, selected: false, account: null, accountConfirmed: false, folder: null, phase: 'WAITING', versions: [], receipts: [], message: 'Déconnecté. Les fichiers et les envois en attente sont conservés.' });
+    this.change({ busy: false, connected: false, selected: false, account: null, accountConfirmed: false, folder: null, dedicatedFolders: [], phase: 'WAITING', versions: [], receipts: [], message: 'Déconnecté. Les fichiers et les envois en attente sont conservés.' });
   }
   private check(epoch: number) { if (this.epoch !== epoch || !this.session?.connected) throw Object.assign(new Error('auth'), { code: 'auth' }); }
   private selected() { if (!this.provider || !this.selection) throw new Error('Dossier requis'); return { provider: this.provider, ...this.selection }; }
