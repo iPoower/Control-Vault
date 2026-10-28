@@ -33,3 +33,9 @@ Ne pas publier le candidat, ou remettre le précédent artefact TEST attesté ap
 - https://developers.google.com/workspace/drive/api/guides/api-specific-auth
 - https://developers.google.com/workspace/drive/api/guides/search-files
 - https://developers.google.com/workspace/drive/api/reference/rest/v3/files/list
+
+## Réserve mobile reproduite puis corrigée
+
+Le run CV 40608745070, tête `36447d5a2b5fe4e417e332913d18fa80273b45b0`, conserve un échec Chromium 414×896 : le clic sur « Utiliser ce dossier » est intercepté après rendu d’un nom long. La classe générique de ligne prévoit trois colonnes dont une icône ; les entrées Drive n’ont que deux enfants. Le correctif donne aux seules entrées Drive deux colonnes puis une disposition verticale sur mobile, avec retour à la ligne des noms et métadonnées. Le même défaut de structure des versions distantes est corrigé. Aucun test supprimé, aucun clic forcé, aucune assertion assouplie.
+
+Avant : 161 parcours réussis, 14 ignorés, 1 échec (reproduit à la relance). Après : nouveau run requis sur le nouveau SHA. Build local réussi ; le navigateur local n’a pas démarré, car Vite sur 0.0.0.0 échoue sur `uv_interface_addresses` dans cet environnement. Cette limite locale ne vaut pas résultat navigateur.
