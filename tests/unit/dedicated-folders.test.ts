@@ -44,10 +44,17 @@ describe('dossiers dédiés déjà autorisés, transport simulé', () => {
     await expect(p.folders()).rejects.toMatchObject({ code: 'conflict' });
   });
   it.each([
-    { incompleteSearch: true, files: [] }, { files: [] }, { incompleteSearch: false, files: null },
+    { incompleteSearch: true, files: [] }, { incompleteSearch: null, files: [] }, { incompleteSearch: false, files: null },
     { incompleteSearch: false, files: Array.from({ length: 101 }, (_, n) => entry('id-' + n)) },
   ])('n’annonce pas de liste partielle comme complète', async response => {
     await expect(client(vi.fn(async () => json(response))).folders()).rejects.toMatchObject({ code: 'incomplete' });
+  });
+  it('accepte la valeur par défaut omise de incompleteSearch mais conserve les validations des dossiers', async () => {
+    const network = vi.fn<typeof fetch>(async () => json({ files: [entry()] }));
+    expect(await client(network).folders()).toEqual([
+      { id: 'dedicated-A', name: 'Dossier fictif', createdTime: '2026-10-28T00:00:00.000Z' },
+    ]);
+    expect(network).toHaveBeenCalledTimes(1);
   });
   it('refuse doublon et boucle de pagination', async () => {
     for (const duplicate of [true, false]) {

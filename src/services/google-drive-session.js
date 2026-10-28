@@ -43,12 +43,27 @@ const GoogleDriveSession = (() => {
       if (pickReject) { pickReject(Object.assign(new Error('cancelled'), { code: 'cancelled' })); pickReject = null; }
       if (pending) { pending.reject(Object.assign(new Error('cancelled'), { code: 'cancelled' })); pending = null; }
     }
+    // Picker is an optional UI, not a dependency of the drive.file API path.
+    // Preserve the synchronous user gesture when opening an already loaded Picker.
+    let pickerReady = false, pickerLoading = null;
+    function preparePicker() {
+      if (pickerReady) return Promise.resolve();
+      if (!pickerLoading) {
+        pickerLoading = (async () => {
+          if (!host.gapi?.load) await script('https://apis.google.com/js/api.js');
+          await new Promise((resolve, reject) => host.gapi.load('picker', { callback: resolve, onerror: () => reject(Object.assign(new Error('network'), { code: 'network' })), timeout: 20000, ontimeout: () => reject(Object.assign(new Error('network'), { code: 'network' })) }));
+          if (!host.google?.picker?.PickerBuilder) return fail('network');
+          pickerReady = true;
+        })().finally(() => { pickerLoading = null; });
+      }
+      return pickerLoading;
+    }
     async function prepare() {
       config(cfg, host.location.origin);
       if (!host.google?.accounts?.oauth2) await script('https://accounts.google.com/gsi/client');
-      if (!host.gapi?.load) await script('https://apis.google.com/js/api.js');
-      await new Promise((resolve, reject) => host.gapi.load('picker', { callback: resolve, onerror: () => reject(new Error('network')), timeout: 20000, ontimeout: () => reject(new Error('network')) }));
       prepared = true;
+      // Never make an optional Picker outage block OAuth or dedicated-folder API.
+      void preparePicker().catch(() => {});
     }
     // Chaque demande a son propre callback/epoch : une réponse tardive de la
     // fenêtre de l'ancien compte ne peut pas authentifier la nouvelle demande.
@@ -116,6 +131,12 @@ const GoogleDriveSession = (() => {
       if (pickReject) return Promise.reject(Object.assign(new Error('busy'), { code: 'busy' }));
       if (!token || Date.now() >= until) { disconnect(); return Promise.reject(Object.assign(new Error('auth'), { code: 'auth' })); }
       try { fileAccess(); } catch (e) { return Promise.reject(e); }
+      if (!pickerReady) {
+        // This button may be pressed before Picker is ready or after its load failed.
+        // No popup is attempted outside the next explicit user gesture.
+        void preparePicker().catch(() => {});
+        return Promise.reject(Object.assign(new Error('network'), { code: 'network' }));
+      }
       const lease = epoch;
       return new Promise((resolve, reject) => {
         pickReject = reject;
