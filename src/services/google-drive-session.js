@@ -51,7 +51,7 @@ const GoogleDriveSession = (() => {
       if (!pickerLoading) {
         pickerLoading = (async () => {
           if (!host.gapi?.load) await script('https://apis.google.com/js/api.js');
-          await new Promise((resolve, reject) => host.gapi.load('picker', { callback: resolve, onerror: () => reject(new Error('network'), { code: 'network' }), timeout: 20000, ontimeout: () => reject(Object.assign(new Error('network'), { code: 'network' })) }));
+          await new Promise((resolve, reject) => host.gapi.load('picker', { callback: resolve, onerror: () => reject(Object.assign(new Error('network'), { code: 'network' })), timeout: 20000, ontimeout: () => reject(Object.assign(new Error('network'), { code: 'network' })) }));
           if (!host.google?.picker?.PickerBuilder) return fail('network');
           pickerReady = true;
         })().finally(() => { pickerLoading = null; });
