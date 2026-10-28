@@ -125,3 +125,35 @@ describe('référence du téléchargement figée avant le contrôle du dossier',
     expect(fetcher.mock.calls.some(c=>String(c[0]).includes('/other-archive'))).toBe(false);
   });
 });
+
+
+describe('Picker facultatif : API Drive utilisable sans bibliothèque Picker', () => {
+  it('autorise OAuth et sélection dédiée quand le chargement Picker échoue', async () => {
+    const clients: any[] = [];
+    const host = {
+      location: { origin }, crypto: webcrypto,
+      gapi: { load: (_name: string, callbacks: any) => callbacks.onerror() },
+      google: { accounts: { oauth2: {
+        initTokenClient: (options: any) => { clients.push(options); return { requestAccessToken: () => {} }; },
+        hasGrantedAllScopes: () => true,
+      } } },
+    };
+    const folder = { id: 'folder-fixture', name: 'Dossier fictif', createdTime: '2026-10-28T00:00:00Z' };
+    const provider = {
+      connect: vi.fn(), disconnect: vi.fn(), identity: vi.fn(async () => ({ id: 'fixture-account', label: 'fixture@example.invalid' })),
+      account: vi.fn(async () => 'fixture-account'), folders: vi.fn(async () => [folder]),
+      folder: vi.fn(async () => {}),
+    };
+    const session = (GoogleDriveSession.create as any)(config, provider, host);
+    await expect(session.prepare()).resolves.toBeUndefined();
+    const pending = session.connect();
+    await clients.at(-1).callback({ access_token: 'fixture-token', scope, expires_in: 3600 });
+    await pending;
+    session.confirmAccount('fixture-account');
+    expect(await session.listDedicatedFolders()).toEqual([folder]);
+    expect((await session.chooseDedicatedFolder('folder-fixture')).folder).toBe('folder-fixture');
+    await expect(session.chooseFolder()).rejects.toMatchObject({ code: 'network' });
+    expect(provider.folder).toHaveBeenCalledWith('folder-fixture');
+    session.disconnect();
+  });
+});
