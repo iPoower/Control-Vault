@@ -24,6 +24,7 @@ export interface ByteProof {
   readonly revision?: SyncRevision;
 }
 export interface SyncProfile { readonly fileId: string; readonly sha256: string; readonly bytes: Uint8Array }
+export interface DedicatedFolder { readonly id: string; readonly name: string; readonly createdTime: string }
 export class OpaqueDrive {
   #token: string | null = null;
   #until = 0;
@@ -142,6 +143,39 @@ export class OpaqueDrive {
     if (p.id !== folder || p.trashed !== false || p.ownedByMe !== true || p.mimeType !== 'application/vnd.google-apps.folder' ||
       !object(p.appProperties) || p.appProperties.cv_contract !== 'rc-folder-v1' ||
       !object(p.capabilities) || p.capabilities.canAddChildren !== true) return fail('conflict');
+  }
+  // Only folders already visible to this OAuth application and bearing its
+  // private contract. This never grants access to an arbitrary Drive folder.
+  async folders(signal?: AbortSignal): Promise<DedicatedFolder[]> {
+    const epoch = this.lease(), out: DedicatedFolder[] = [], pages = new Set<string>(), ids = new Set<string>();
+    let next = '', count = 0;
+    do {
+      if (++count > 10) return fail('incomplete');
+      const params = new URLSearchParams({
+        q: "mimeType = 'application/vnd.google-apps.folder' and trashed = false and 'me' in owners and appProperties has { key='cv_contract' and value='rc-folder-v1' }",
+        spaces: 'drive', pageSize: '100',
+        fields: 'nextPageToken,incompleteSearch,files(id,name,createdTime,mimeType,trashed,ownedByMe,appProperties,capabilities(canAddChildren))',
+      });
+      if (next) params.set('pageToken', next);
+      const page = await this.json(await this.request(API + '/files?' + params, { signal }, epoch), signal);
+      this.check(epoch, signal);
+      if (page.incompleteSearch !== false || !Array.isArray(page.files) || page.files.length > 100) return fail('incomplete');
+      for (const f of page.files) {
+        if (!object(f) || typeof f.id !== 'string' || typeof f.name !== 'string' || !f.name || f.name.length > 1024 ||
+          typeof f.createdTime !== 'string' || f.createdTime.length > 40 || !Number.isFinite(Date.parse(f.createdTime)) ||
+          f.mimeType !== 'application/vnd.google-apps.folder' || f.trashed !== false || f.ownedByMe !== true ||
+          !object(f.appProperties) || f.appProperties.cv_contract !== 'rc-folder-v1' ||
+          !object(f.capabilities) || f.capabilities.canAddChildren !== true) return fail('conflict');
+        const folder = id(f.id);
+        if (ids.has(folder) || out.length >= 1000) return fail('incomplete');
+        ids.add(folder); out.push(Object.freeze({ id: folder, name: f.name, createdTime: f.createdTime }));
+      }
+      if (page.nextPageToken === undefined) next = '';
+      else if (typeof page.nextPageToken !== 'string' || !page.nextPageToken || page.nextPageToken.length > 4096 || pages.has(page.nextPageToken)) return fail('incomplete');
+      else { next = page.nextPageToken; pages.add(next); }
+    } while (next);
+    this.check(epoch, signal);
+    return out.sort((a, b) => b.createdTime.localeCompare(a.createdTime) || a.id.localeCompare(b.id));
   }
   async createFolder(fileId: string, signal?: AbortSignal): Promise<string> {
     id(fileId); const epoch = this.lease();

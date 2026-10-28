@@ -8,7 +8,7 @@ const origin = 'https://vault.example.com';
 const scope = 'https://www.googleapis.com/auth/drive.file';
 const config = { approved: true, clientId: ['123456', 'fake.apps.googleusercontent.com'].join('-'), apiKey: 'AIza' + 'a'.repeat(35), appId: '123456', raceOrigin: 'https://race.example.com', vaultOrigin: origin };
 
-test('application complète, Google simulé : confirmation compte, dossier dédié, upload opaque, relecture et jeton oublié', async ({ context, page, browser }) => {
+for (const direct of [false, true]) test('application complète, Google simulé : confirmation compte, dossier dédié, upload opaque, relecture et jeton oublié' + (direct ? ' · liste dédiée sans Picker' : ' · Picker conservé'), async ({ context, page, browser }) => {
   await context.route('**/*', r => r.abort());
   const fixture = await packetFixture(61), files = new Map<string, { meta: Record<string, unknown>; bytes: Buffer }>(), pending = new Map<string, Record<string, unknown>>(); let next = 0, posts = 0, folderPosts = 0, folderReady = false;
   await context.route(origin + '/**', async r => {
@@ -25,7 +25,7 @@ test('application complète, Google simulé : confirmation compte, dossier dédi
   await context.route('https://apis.google.com/js/api.js', r => r.fulfill({ contentType: 'text/javascript', body: `
     window.gapi={load:(name,o)=>o.callback()};
     class View{setIncludeFolders(){return this}setSelectFolderEnabled(){return this}}
-    class Picker{addView(){return this}setOAuthToken(){return this}setDeveloperKey(){return this}setAppId(){return this}setOrigin(){return this}setCallback(c){this.cb=c;return this}build(){return this}setVisible(v){if(v)this.cb({action:'picked',docs:[{id:'folder-A'}]})}}
+    class Picker{addView(){return this}setOAuthToken(){return this}setDeveloperKey(){return this}setAppId(){return this}setOrigin(){return this}setCallback(c){this.cb=c;return this}build(){return this}setVisible(v){if(v){window.fixturePickerOpened=true;${direct ? "throw new Error('synthetic Picker unavailable')" : "this.cb({action:'picked',docs:[{id:'folder-A'}]})"}}}}
     google.picker={DocsView:View,PickerBuilder:Picker,ViewId:{FOLDERS:'folders'},Action:{PICKED:'picked',CANCEL:'cancel'}};` }));
   await context.route('https://www.googleapis.com/**', async r => {
     const request = r.request(), u = new URL(request.url()), key = u.pathname.split('/').at(-1)!;
@@ -40,6 +40,7 @@ test('application complète, Google simulé : confirmation compte, dossier dédi
     if (request.method() === 'POST' && u.pathname === '/drive/v3/files') { const m=request.postDataJSON(); expect(m.mimeType).toBe('application/vnd.google-apps.folder');expect(m.appProperties).toEqual({cv_contract:'rc-folder-v1'});expect(m.id).toBe('folder-A');folderReady=true;folderPosts++;return json({id:m.id}); }
     if (request.method() === 'POST') { posts++; const m = request.postDataJSON() as Record<string, unknown>; pending.set(String(m.id), m); return r.fulfill({ headers: { ...headers, Location: 'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&upload_id=' + m.id } }); }
     if (request.method() === 'PUT') { const id = u.searchParams.get('upload_id')!, bytes = request.postDataBuffer()!; expect(bytes.equals(Buffer.from(fixture.bytes))).toBe(true); files.set(id, { meta: { ...pending.get(id), size: String(bytes.length) }, bytes }); return json({ id }); }
+    if (u.pathname === '/drive/v3/files' && (u.searchParams.get('q') || '').includes("value='rc-folder-v1'")) return json({ incompleteSearch: false, files: folderReady ? [{id:'folder-A',name:'Dossier fictif <img src=x onerror=alert(1)>',createdTime:'2026-10-28T00:00:00.000Z',mimeType:'application/vnd.google-apps.folder',trashed:false,ownedByMe:true,appProperties:{cv_contract:'rc-folder-v1'},capabilities:{canAddChildren:true}}] : [] });
     if (u.pathname === '/drive/v3/files') return json({ incompleteSearch: false, files: [...files.values()].map(f => f.meta) });
     const file = files.get(key); if (!file) return json({}, 404);
     return u.searchParams.get('alt') === 'media' ? r.fulfill({ headers, contentType: 'application/json', body: file.bytes }) : json(file.meta);
@@ -62,7 +63,14 @@ test('application complète, Google simulé : confirmation compte, dossier dédi
   expect(folderPosts).toBe(1);
   await page.getByRole('button', {name:'Créer un dossier neuf dédié'}).click();
   await expect(page.getByRole('status').filter({hasText:'Dossier neuf dédié créé'})).toBeVisible();expect(folderPosts).toBe(1);
-  await page.getByRole('button', { name: 'Choisir le dossier Google Drive' }).click();
+  if (direct) {
+    await page.getByRole('button',{name:'Retrouver les dossiers dédiés'}).click();
+    const list=page.getByRole('region',{name:'Dossiers dédiés autorisés'});
+    await expect(list.getByText('Dossier fictif <img src=x onerror=alert(1)>',{exact:true})).toBeVisible();
+    await expect(list.locator('img')).toHaveCount(0);
+    await list.getByRole('button',{name:'Utiliser ce dossier'}).click();
+  } else await page.getByRole('button', { name: 'Choisir le dossier Google Drive' }).click();
+  expect(await page.evaluate(() => Boolean((window as unknown as {fixturePickerOpened?:boolean}).fixturePickerOpened))).toBe(!direct);
   await page.getByLabel('Copie chiffrée Race Control').setInputFiles({ name: 'opaque.json', mimeType: 'application/json', buffer: Buffer.from(fixture.bytes) });
   await expect(page.getByRole('status').filter({ hasText: 'Copie envoyée' })).toBeVisible();
   expect(files.size).toBe(1); expect(posts).toBe(1);

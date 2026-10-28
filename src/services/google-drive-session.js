@@ -31,6 +31,7 @@ const GoogleDriveSession = (() => {
   function create(input, provider, host = globalThis) {
     const cfg = config(input, host.location.origin);
     let token = null, until = 0, epoch = 0, prepared = false, pending = null, picker = null, pickReject = null, pickerBusy = false, identity = null, approvedAccount = null, pendingFolder = null;
+    let dedicated = new Set();
     const script = src => new Promise((resolve, reject) => {
       const el = host.document.createElement('script'); el.src = src; el.async = true; el.referrerPolicy = 'strict-origin-when-cross-origin';
       const timer = setTimeout(() => { el.remove(); reject(Object.assign(new Error('network'), { code: 'network' })); }, 20000);
@@ -38,7 +39,7 @@ const GoogleDriveSession = (() => {
       host.document.head.appendChild(el);
     });
     function disconnect() {
-      token = null; until = 0; identity = approvedAccount = pendingFolder = null; pickerBusy = false; epoch++; provider.disconnect(); picker?.setVisible(false); picker = null;
+      token = null; until = 0; identity = approvedAccount = pendingFolder = null; dedicated = new Set(); pickerBusy = false; epoch++; provider.disconnect(); picker?.setVisible(false); picker = null;
       if (pickReject) { pickReject(Object.assign(new Error('cancelled'), { code: 'cancelled' })); pickReject = null; }
       if (pending) { pending.reject(Object.assign(new Error('cancelled'), { code: 'cancelled' })); pending = null; }
     }
@@ -92,6 +93,25 @@ const GoogleDriveSession = (() => {
       if (lease !== epoch || Date.now() >= until) return fail('auth');
       return folder;
     }
+    async function listDedicatedFolders() {
+      fileAccess(); dedicated = new Set(); const lease = epoch, account = await provider.account();
+      if (lease !== epoch || account !== approvedAccount) return fail('auth');
+      const folders = await provider.folders();
+      if (lease !== epoch || Date.now() >= until) return fail('auth');
+      dedicated = new Set(folders.map(f => f.id));
+      return folders.map(f => Object.freeze({ ...f }));
+    }
+    async function chooseDedicatedFolder(folder) {
+      fileAccess();
+      if (!dedicated.has(folder)) return fail('confirmation');
+      const lease = epoch, account = await provider.account();
+      if (lease !== epoch || account !== approvedAccount) return fail('auth');
+      await provider.folder(folder);
+      if (lease !== epoch || Date.now() >= until) return fail('auth');
+      const binding = [...new Uint8Array(await host.crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify([cfg.clientId, account, folder]))))].map(x => x.toString(16).padStart(2, '0')).join('');
+      if (lease !== epoch || Date.now() >= until) return fail('auth');
+      return { folder, binding, account: identity.label };
+    }
     function chooseFolder() {
       if (pickReject) return Promise.reject(Object.assign(new Error('busy'), { code: 'busy' }));
       if (!token || Date.now() >= until) { disconnect(); return Promise.reject(Object.assign(new Error('auth'), { code: 'auth' })); }
@@ -121,7 +141,7 @@ const GoogleDriveSession = (() => {
         picker.setVisible(true);
       });
     }
-    return Object.freeze({ prepare, connect, confirmAccount, newFolder, chooseFolder, disconnect,
+    return Object.freeze({ prepare, connect, confirmAccount, newFolder, listDedicatedFolders, chooseDedicatedFolder, chooseFolder, disconnect,
       get identity() { return identity && { ...identity }; }, get confirmed() { return !!approvedAccount; },
       get connected() { if (token && (Date.now() >= until || provider.connected === false)) disconnect(); return !!token; } });
   }
