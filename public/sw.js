@@ -4,9 +4,28 @@
 // CacheStorage est partagé par toutes les applications d'une même origine GitHub Pages.
 // Ne jamais supprimer les caches Race Control ou les caches tiers.
 const CACHE_PREFIX = 'cv-shell-';
-const VERSION = `${CACHE_PREFIX}v3`;
+// Renouveler le namespace protège contre un ancien shell déjà remplacé par une page annexe.
+// La migration efface uniquement les anciens caches cv-shell-, jamais les autres applications.
+const VERSION = `${CACHE_PREFIX}v4`;
+// Vite remplit cette liste avec les noms réellement produits (JS/CSS/polices).
+// Sans eux le HTML seul ne permet pas un premier redémarrage hors ligne.
+const BUILD_ASSETS = /* @build-assets */ [];
 const APP_PATH = new URL(self.registration.scope).pathname;
 const cached = (request) => caches.open(VERSION).then((cache) => cache.match(request));
+// L'URL finale est la preuve de provenance, après toutes les redirections.
+// Filtrer aussi les anciennes entrées évite de servir un cache déjà contaminé.
+function validShell(response) {
+  if (!response?.ok || response.redirected || !/^text\/html(?:\s*;|$)/i.test(response.headers.get('content-type') || '') || !response.url) return false;
+  try {
+    const final = new URL(response.url);
+    return final.origin === self.location.origin && [APP_PATH, APP_PATH + 'index', APP_PATH + 'index.html'].includes(final.pathname);
+  } catch { return false; }
+}
+async function cachedShell() {
+  const response = await cached('./index.html');
+  if (!validShell(response)) throw new Error('Aucun shell hors ligne vérifié');
+  return response;
+}
 async function remember(request, response) {
   try {
     const cache = await caches.open(VERSION);
@@ -18,7 +37,14 @@ async function remember(request, response) {
 }
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(VERSION).then((c) => c.addAll(['./', './index.html', './manifest.webmanifest', './icons/icon.svg'])));
+  event.waitUntil(caches.open(VERSION).then(async (c) => {
+    await c.addAll(['./', './manifest.webmanifest', './icons/icon.svg', ...BUILD_ASSETS]);
+    // Cloudflare peut rediriger index.html vers / ; une réponse redirigée
+    // ne constitue pas un repli de navigation compatible avec les navigateurs.
+    const root = await c.match('./');
+    if (!validShell(root) || root.url !== self.registration.scope) throw new Error('Shell racine non vérifié');
+    await c.put('./index.html', root);
+  }));
   self.skipWaiting();
 });
 
@@ -37,15 +63,21 @@ self.addEventListener('fetch', (event) => {
 
   // Navigation : réseau d'abord (toujours la dernière version), cache en secours hors ligne.
   if (req.mode === 'navigate') {
+    // Une page de reprise, une configuration ou tout autre document HTML ne doit
+    // jamais écraser ./index.html dans CacheStorage. Seuls les alias du shell
+    // bénéficient du repli hors ligne.
+    if (![APP_PATH, APP_PATH + 'index', APP_PATH + 'index.html'].includes(url.pathname)) return;
+    // Récupérer la racine directement pour les alias que Pages redirige.
+    const networkRequest = url.pathname === APP_PATH ? req : new URL(APP_PATH + url.search, url.origin).href;
     event.respondWith(
-      fetch(req)
+      fetch(networkRequest)
         .then((res) => {
-          if (res.ok && res.headers.get('content-type')?.includes('text/html')) {
+          if (validShell(res)) {
             return remember('./index.html', res);
           }
           return res;
         })
-        .catch(() => cached('./index.html')),
+        .catch(() => cachedShell()),
     );
     return;
   }

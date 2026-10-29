@@ -11,7 +11,7 @@ type TestEvent = {
   request?: { method: string; mode: string; url: string };
 };
 
-function harness(initial: string[], options: { fetch?: () => Promise<unknown>; hit?: boolean; failPut?: boolean } = {}) {
+function harness(initial: string[], options: { fetch?: (input?: unknown) => Promise<unknown>; hit?: boolean; failPut?: boolean; origin?: string; scope?: string; cachedUrl?: string; redirectRoot?: boolean; redirectCached?: boolean } = {}) {
   const names = new Set(initial);
   const deleted: string[] = [];
   const listeners = new Map<string, (event: TestEvent) => void>();
@@ -20,8 +20,8 @@ function harness(initial: string[], options: { fetch?: () => Promise<unknown>; h
   let claimed = false;
 
   const self = {
-    location: { origin: 'https://ipoower.github.io' },
-    registration: { scope: 'https://ipoower.github.io/Control-Vault/' },
+    location: { origin: options.origin ?? 'https://ipoower.github.io' },
+    registration: { scope: options.scope ?? 'https://ipoower.github.io/Control-Vault/' },
     addEventListener: (type: string, fn: (event: TestEvent) => void) => listeners.set(type, fn),
     skipWaiting: () => {},
     clients: { claim: async () => { claimed = true; } },
@@ -37,7 +37,7 @@ function harness(initial: string[], options: { fetch?: () => Promise<unknown>; h
       names.add(key);
       return { addAll: async (_urls: string[]) => {},
         put: async (request: unknown) => { if (options.failPut) throw new Error('Quota fictif'); written.push({ cache: key, request }); },
-        match: async (request: string) => { matched.push(key + ':' + request); return options.hit === false ? undefined : { offlineShell: true }; } };
+        match: async (request: string) => { matched.push(key + ':' + request); return options.hit === false ? undefined : { offlineShell: true, ok: true, redirected: request === './' ? !!options.redirectRoot : !!options.redirectCached, url: options.cachedUrl ?? self.registration.scope, headers: { get: () => 'text/html' } }; } };
     },
     match: async (key: string) => {
       matched.push(key);
@@ -56,8 +56,34 @@ function harness(initial: string[], options: { fetch?: () => Promise<unknown>; h
 }
 
 describe('Service Worker : isolation interprojets', () => {
+  it('installe le shell sous index.html depuis la racine non redirigée', async () => {
+    const h = harness([]); let pending: Promise<unknown> | undefined;
+    h.listeners.get('install')?.({ waitUntil: p => { pending = p; } });
+    await pending;
+    expect(h.matched).toContain('cv-shell-v4:./');
+    expect(h.written).toEqual([{ cache: 'cv-shell-v4', request: './index.html' }]);
+  });
+  it('refuse une racine redirigée lors de l’installation', async () => {
+    const h = harness([], { redirectRoot: true }); let pending: Promise<unknown> | undefined;
+    h.listeners.get('install')?.({ waitUntil: p => { pending = p; } });
+    await expect(pending).rejects.toThrow(/shell|racine|redirect/i);
+  });
+  it('ne sert pas une ancienne réponse redirigée comme navigation hors ligne', async () => {
+    const h = harness([], { redirectCached: true });
+    let pending: Promise<unknown> | undefined;
+    h.listeners.get('fetch')?.({ request: {method:'GET',mode:'navigate',url:'https://ipoower.github.io/Control-Vault/'}, respondWith:p=>{ pending=p; } });
+    await expect(pending).rejects.toThrow('Aucun shell hors ligne vérifié');
+  });
+  it('demande directement la racine réseau pour un alias index.html', async () => {
+    let target: unknown;
+    const h = harness([], { fetch: async input => { target = input; return {ok:true,url:'https://ipoower.github.io/Control-Vault/',headers:{get:()=> 'text/html'},clone(){return this;}}; } });
+    let pending: Promise<unknown> | undefined;
+    h.listeners.get('fetch')?.({ request: {method:'GET',mode:'navigate',url:'https://ipoower.github.io/Control-Vault/index.html?fixture=1'}, respondWith:p=>{ pending=p; } });
+    await pending;
+    expect(target).toBe('https://ipoower.github.io/Control-Vault/?fixture=1');
+  });
   it('ne supprime que les ANCIENS caches Control Vault et préserve Race Control et les autres applications', async () => {
-    const h = harness(['cv-shell-v0', 'cv-shell-v1', 'cv-shell-v2', 'cv-shell-v3', 'twrc-shell-v17', 'twrc-weather-v4', 'unrelated-cache']);
+    const h = harness(['cv-shell-v0', 'cv-shell-v1', 'cv-shell-v2', 'cv-shell-v3', 'cv-shell-v4', 'twrc-shell-v17', 'twrc-weather-v4', 'unrelated-cache']);
     const activate = h.listeners.get('activate');
     expect(activate).toBeTypeOf('function');
     let pending: Promise<unknown> | undefined;
@@ -65,8 +91,8 @@ describe('Service Worker : isolation interprojets', () => {
     expect(pending).toBeDefined();
     await pending;
 
-    expect(h.deleted.sort()).toEqual(['cv-shell-v0', 'cv-shell-v1', 'cv-shell-v2']);
-    expect([...h.names].sort()).toEqual(['cv-shell-v3', 'twrc-shell-v17', 'twrc-weather-v4', 'unrelated-cache'].sort());
+    expect(h.deleted.sort()).toEqual(['cv-shell-v0', 'cv-shell-v1', 'cv-shell-v2', 'cv-shell-v3']);
+    expect([...h.names].sort()).toEqual(['cv-shell-v4', 'twrc-shell-v17', 'twrc-weather-v4', 'unrelated-cache'].sort());
     expect(h.isClaimed()).toBe(true);
   });
 
@@ -80,20 +106,20 @@ describe('Service Worker : isolation interprojets', () => {
   });
 
   it('utilise encore la page hors ligne en cas d’échec réseau', async () => {
-    const h = harness(['cv-shell-v3', 'twrc-shell-v17']);
+    const h = harness(['cv-shell-v4', 'twrc-shell-v17']);
     let response: Promise<unknown> | undefined;
     h.listeners.get('fetch')?.({
       request: { method: 'GET', mode: 'navigate', url: 'https://ipoower.github.io/Control-Vault/' },
       respondWith: (promise) => { response = promise; },
     });
     expect(response).toBeDefined();
-    await expect(response).resolves.toEqual({ offlineShell: true });
-    expect(h.matched).toEqual(['cv-shell-v3:./index.html']);
+    await expect(response).resolves.toMatchObject({ offlineShell: true, url: 'https://ipoower.github.io/Control-Vault/' });
+    expect(h.matched).toEqual(['cv-shell-v4:./index.html']);
     expect(h.deleted).toEqual([]);
   });
 
   it('ignore les requêtes externes et non GET', () => {
-    const h = harness(['cv-shell-v3', 'twrc-shell-v17']);
+    const h = harness(['cv-shell-v4', 'twrc-shell-v17']);
     let responded = false;
     for (const request of [
       { method: 'POST', mode: 'navigate', url: 'https://ipoower.github.io/Control-Vault/' },
@@ -106,7 +132,7 @@ describe('Service Worker : isolation interprojets', () => {
     expect(responded).toBe(false);
   });
 
-  const response = (ok = true, type = 'text/html') => ({ ok, headers: { get: () => type }, clone() { return this; } });
+  const response = (ok = true, type = 'text/html', url = 'https://ipoower.github.io/Control-Vault/') => ({ ok, url, headers: { get: () => type }, clone() { return this; } });
   const navigation = { method: 'GET', mode: 'navigate', url: 'https://ipoower.github.io/Control-Vault/' };
   async function request(h: ReturnType<typeof harness>, request = navigation) {
     let pending: Promise<unknown> | undefined;
@@ -117,7 +143,7 @@ describe('Service Worker : isolation interprojets', () => {
   it('attend la mise en cache de l’interface réseau dans son seul cache', async () => {
     const res = response(), h = harness(['twrc-shell-v17'], { fetch: async () => res });
     expect(await request(h)).toBe(res);
-    expect(h.written).toEqual([{ cache: 'cv-shell-v3', request: './index.html' }]);
+    expect(h.written).toEqual([{ cache: 'cv-shell-v4', request: './index.html' }]);
     expect(h.deleted).toEqual([]);
   });
   it('ne remplace pas son interface hors ligne par une erreur HTTP ou une réponse JSON', async () => {
@@ -132,11 +158,66 @@ describe('Service Worker : isolation interprojets', () => {
     expect(await request(h)).toBe(res);
     expect(h.matched).toEqual([]);
   });
+  it('refuse de persister les redirections HTML externes, secondaires ou sans URL finale', async () => {
+    for (const url of ['https://outside.invalid/login', 'https://ipoower.github.io/Control-Vault/signin.html', '']) {
+      const h = harness([], { fetch: async () => response(true, 'text/html', url) });
+      await request(h);
+      expect(h.written, 'réponse non autorisée : ' + url).toEqual([]);
+    }
+  });
+  it('refuse un ancien cache HTML provenant d’une redirection secondaire ou externe', async () => {
+    for (const cachedUrl of ['https://outside.invalid/login', 'https://ipoower.github.io/Control-Vault/signin.html', '']) {
+      const h = harness(['cv-shell-v4'], { cachedUrl });
+      await expect(request(h)).rejects.toThrow('Aucun shell hors ligne vérifié');
+    }
+  });
+  it('actualise aussi le shell légitime sur l’origine Cloudflare TEST', async () => {
+    const origin = 'https://cv-drive-test-ipoower.pages.dev';
+    const res = response(true, 'text/html; charset=utf-8', origin + '/index.html');
+    const h = harness([], { origin, scope: origin + '/', fetch: async () => res });
+    expect(await request(h, { ...navigation, url: origin + '/' })).toBe(res);
+    expect(h.written).toEqual([{ cache: 'cv-shell-v4', request: './index.html' }]);
+  });
   it('met en cache les assets du seul chemin applicatif et uniquement après réponse valide', async () => {
     const res = response(true, 'text/javascript'), h = harness(['twrc-shell-v17'], { fetch: async () => res, hit: false });
     const asset = { ...navigation, mode: 'cors', url: 'https://ipoower.github.io/Control-Vault/assets/fiction.js' };
     expect(await request(h, asset)).toBe(res);
-    expect(h.written).toEqual([{ cache: 'cv-shell-v3', request: asset }]);
-    expect(h.matched.every(k => k.startsWith('cv-shell-v3:'))).toBe(true);
+    expect(h.written).toEqual([{ cache: 'cv-shell-v4', request: asset }]);
+    expect(h.matched.every(k => k.startsWith('cv-shell-v4:'))).toBe(true);
   });
+  it('ne remplace jamais le shell par une navigation vers /recovery ou un JSON de configuration', () => {
+    const h = harness(['cv-shell-v4'], { fetch: async () => response(true, 'text/html') });
+    const paths = ['recovery', 'recovery.html', 'drive-config.json', 'fixture-manifest.json'];
+    for (const path of paths) {
+      let intercepted = false;
+      h.listeners.get('fetch')?.({
+        request: { method: 'GET', mode: 'navigate', url: 'https://ipoower.github.io/Control-Vault/' + path },
+        respondWith: () => { intercepted = true; },
+      });
+      expect(intercepted, 'le navigateur doit aller directement au réseau pour ' + path).toBe(false);
+    }
+    expect(h.written).toEqual([]);
+  });
+
+  it('applique aussi les frontières TEST Cloudflare à la racine, sans bloquer le shell', () => {
+    const origin = 'https://cv-drive-test-ipoower.pages.dev';
+    const h = harness(['cv-shell-v3'], { origin, scope: origin + '/' });
+    for (const pathname of ['/recovery', '/recovery.html', '/drive-config.json', '/fixture-manifest.json', '/autre-page.html']) {
+      let intercepted = false;
+      h.listeners.get('fetch')?.({
+        request: { method: 'GET', mode: 'navigate', url: origin + pathname },
+        respondWith: () => { intercepted = true; },
+      });
+      expect(intercepted, 'ne pas intercepter la route secondaire ' + pathname).toBe(false);
+    }
+    for (const pathname of ['/', '/index', '/index.html']) {
+      let intercepted = false;
+      h.listeners.get('fetch')?.({
+        request: { method: 'GET', mode: 'navigate', url: origin + pathname },
+        respondWith: () => { intercepted = true; },
+      });
+      expect(intercepted, 'la route shell doit rester interceptée ' + pathname).toBe(true);
+    }
+  });
+
 });

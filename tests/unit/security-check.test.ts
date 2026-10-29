@@ -36,6 +36,12 @@ describe('détection de secrets', () => {
 });
 
 describe('CSP', () => {
+  it.each(["'self'", 'https://fixture.invalid', "'none' 'self'"])(
+    'refuse une base de document autorisée : %s', (base) => {
+      expect(checkCsp(`default-src 'self'; script-src 'self'; object-src 'none'; base-uri ${base}`,
+        { requireFrameAncestors: false })).toContain("base-uri 'none' requis");
+    });
+
   it('refuse unsafe-eval, unsafe-inline dans script-src et le joker', () => {
     expect(checkCsp("default-src 'self'; script-src 'self' 'unsafe-eval'; object-src 'none'; base-uri 'self'", { requireFrameAncestors: false })).toContain("'unsafe-eval' interdit");
     expect(checkCsp("default-src 'self'; script-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'", { requireFrameAncestors: false })).toContain("'unsafe-inline' interdit dans script-src");

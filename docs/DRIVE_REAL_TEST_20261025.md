@@ -1,0 +1,21 @@
+# Candidat Google Drive TEST — 25 octobre 2026
+
+Cette branche est réservée aux projets Cloudflare existants `rc-drive-test-ipoower` et `cv-drive-test-ipoower`, branche de publication `noesis-test`. Aucun main, environnement de production, projet Reconversion ou travail Garage/Climatisation n'est modifié. Les PR temporaires #239/#20 restent des preuves et ne sont ni fusionnées ni publiées.
+
+Le candidat réunit les PR sources pertinentes sans intégrer les commits des branches temporaires. Les moteurs métier/chiffrement restent ceux des sources, avec les correctifs de sécurité/IDB et de récupération déjà testés. RC accepte désormais une base HTTPS à la racine, auparavant refusée par le validateur de build ; les URL avec identifiants, requête ou fragment restent refusées.
+
+Les scripts `tools/build-drive-test.cjs` (RC) et `scripts/build-drive-test.mjs` (Vault) exigent `BUILD_SHA` à 40 caractères. Avec `GOOGLE_DRIVE_CONFIG` absent, ils produisent un profil fermé, `googleEnabled:false`, configuration `null`. Ce n'est pas une activation Google. Un client réel ne sera accepté qu'avec les six champs existants et les deux origines TEST exactes ; aucune clé secrète, phrase, dossier, email ou jeton dans cette configuration publique.
+
+RC construit exclusivement depuis `tests/fixtures/preset.fake.json` et un relais fictif sans notification, avec les clés publiques de test du harnais. Il déchiffre et compare le préréglage produit. Les sorties sont limitées aux assets publics et données synthétiques ; aucun fichier chiffré du dossier personnel `encrypted/`, préréglage clair, artifact privé ou code du relais n'est publié. Géolocalisation interdite. Les deux PWA portent TEST, un bandeau visible et un lien réciproque TEST ; les empreintes de tous les fichiers figurent dans `fixture-manifest.json`.
+
+Le numéro RC `prod-999` est réservé à la fixture de recette ; ses copies ne doivent jamais être utilisées comme progression personnelle ou importées dans la production. Chaque construction utilise les sels et IV aléatoires normaux : les octets chiffrés changent légitimement entre deux builds. Vérifier le manifeste du ZIP effectivement publié, sans prétendre à un chiffré déterministe.
+
+Les nouvelles preuves Node couvrent 128 révisions A2 valides, 129 refusées avant HTTP et le budget 128 Mio. La borne mémoire utilise des métadonnées HTTP simulées et n'annonce aucun transfert Google de 128 Mio. Aucun historique n'est supprimé. Les copies sont indépendantes ; la limite demeure une restriction de disponibilité à traiter avant une promesse de récupération durable pour de gros historiques.
+
+Après vérification des SHA/CI, dépôt uniquement dans le projet TEST correspondant, jamais dans `race-control-ipoower` / `control-vault-ipoower`. Le libellé Cloudflare « production » de ces deux projets isolés désigne leurs seules URL TEST. Contrôler version, octets, CSP et origine effective avant OAuth. Une connexion Cloudflare sécurisée est actuellement nécessaire car le connecteur refuse le téléversement des assets avec ses permissions présentes. Ne pas extraire ou élargir les secrets de production pour contourner ce refus.
+
+Google Cloud doit utiliser un projet TEST dédié, Drive API + Picker, client Web commun, `drive.file`, clé Picker limitée aux référents TEST et à Picker API, aucun billing. L'administrateur et l'identité Drive de test sont deux rôles distincts ; ne jamais choisir automatiquement un compte personnel pour les essais. L'absence d'accès console ne constitue pas une configuration exécutée.
+
+La recette réelle requiert : envoi de fixture, relecture exacte des octets, reçu, édition pendant envoi, perte de réponse après écriture, reprise du même identifiant, hors ligne, deux contextes indépendants, conflit sans écrasement, installation vierge, fermeture/réouverture et égalité exhaustive des valeurs. Distinguer fournisseur Google simulé, Google hébergé et iPhone physique. Aucun mot de passe, code, jeton ou HAR brut dans les preuves.
+
+Rollback TEST : sélectionner le déploiement TEST précédent si nécessaire et autorisé, sans supprimer de déploiement, fichier Drive, cache, coffre, outbox ou historique. Un rollback logiciel ne restaure pas des données. Ne pas réintroduire une version ignorant un journal de récupération en cours.

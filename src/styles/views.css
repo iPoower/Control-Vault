@@ -10,6 +10,7 @@
 }
 .dial { position: relative; width: min(212px, 62vw); aspect-ratio: 1; justify-self: center; }
 .dial-svg { width: 100%; height: 100%; overflow: visible; }
+
 .dial-ticks line { stroke: var(--brass); stroke-width: 1.2; opacity: 0.32; stroke-linecap: round; }
 .dial-ticks line.long { opacity: 0.7; stroke-width: 1.6; }
 .dial-track { fill: none; stroke: var(--surface-3); stroke-width: 10; }
@@ -275,3 +276,9 @@ a.btn { text-decoration: none; }
   .issues .row { grid-template-columns: auto minmax(0, 1fr); }
   .issues .row .btn { grid-column: 2; justify-self: start; }
 }
+
+/* Drive entries have two children; the generic row reserves an icon column. */
+.drive-entry { grid-template-columns: minmax(0, 1fr) auto; }
+.drive-entry .row-title, .drive-entry .row-sub { white-space: normal; overflow-wrap: anywhere; }
+.drive-entry > .btn { justify-self: start; }
+@media (max-width: 600px) { .drive-entry { grid-template-columns: minmax(0, 1fr); } }
