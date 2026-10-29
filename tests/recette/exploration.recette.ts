@@ -42,7 +42,9 @@ async function replay(page: Page, s: Screen) {
 
 for (const group of GROUPS) test(`exploration systématique · ${group.name}`, async ({ context, page }, info) => {
   test.setTimeout(BUDGET_MS + 10 * 60_000);
-  const { rec, fake, stop } = await startSession(context, page, info, 'exploration-' + group.name);
+  // Après correctif BUG-04, les écrans de démonstration n'existent qu'en mode démo explicite (origine sans
+  // configuration Google) : ils y sont explorés ; l'écran Google Drive reste exploré sur l'origine connectée.
+  const { rec, fake, stop } = await startSession(context, page, info, 'exploration-' + group.name, { demo: group.name !== 'google-drive' });
   const rows: MatrixRow[] = [];
   const screens: (Screen & { found: number; tested: number; error?: string })[] = [];
   const queue: Screen[] = [...group.screens];

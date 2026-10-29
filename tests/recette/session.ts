@@ -1,15 +1,15 @@
 // Recette Phase T — préparation d'une session navigateur (Google simulé, PWA iPhone, trace).
 import { expect, type BrowserContext, type Page, type TestInfo } from '@playwright/test';
 import { join } from 'node:path';
-import { installFakeGoogle, ORIGIN, STANDALONE_INIT } from './fake-google';
+import { installFakeGoogle, ORIGIN, STANDALONE_INIT, type FakeOptions } from './fake-google';
 import { OUT, Recorder } from './recorder';
 
 export const isIphone = (info: TestInfo) => /iphone/.test(info.project.name);
 
-export async function startSession(context: BrowserContext, page: Page, info: TestInfo, phase: string) {
+export async function startSession(context: BrowserContext, page: Page, info: TestInfo, phase: string, options: FakeOptions = {}) {
   const rec = new Recorder(Recorder.browserName(info), phase);
   if (isIphone(info)) await context.addInitScript(STANDALONE_INIT);
-  const fake = await installFakeGoogle(context);
+  const fake = await installFakeGoogle(context, options);
   // Parcours : film d'écran + instantanés DOM. Exploration / monkey : instantanés DOM seulement
   // (une capture JPEG par étape est déjà enregistrée), sinon les traces dépassent le giga-octet.
   await context.tracing.start({ screenshots: phase === 'parcours', snapshots: true, title: `recette ${rec.browser} ${phase}` });

@@ -35,8 +35,13 @@ test('parcours utilisateur : connexion Google simulée → dossier → versions 
     });
     await step('Accès à l’espace Google Drive', async () => {
       if (mobile) {
-        await page.locator('.tabbar').getByRole('link', { name: 'Réglages' }).click();
-        await page.getByRole('link', { name: /Copies chiffrées Race Control/ }).click();
+        // Après correctif BUG-04, l'origine connectée n'affiche que l'onglet Google Drive.
+        const direct = page.locator('.tabbar').getByRole('link', { name: 'Google Drive' });
+        if (await direct.count()) await direct.click();
+        else {
+          await page.locator('.tabbar').getByRole('link', { name: 'Réglages' }).click();
+          await page.getByRole('link', { name: /Copies chiffrées Race Control/ }).click();
+        }
       } else {
         await page.locator('.sidebar').getByRole('link', { name: 'Google Drive', exact: true }).click();
       }

@@ -48,6 +48,8 @@ export interface FakeOptions {
   consent?: 'granted' | 'popup-closed' | 'scope-refused';
   /** Réponse du faux Google Picker : dossier choisi ou annulation par l'utilisateur. */
   picker?: 'picked' | 'cancel';
+  /** Origine de démonstration : drive-config.json vaut null (comme le build sans Google). */
+  demo?: boolean;
 }
 export async function installFakeGoogle(context: BrowserContext, options: FakeOptions = {}) {
   const consent = options.consent ?? 'granted', pickerAction = options.picker ?? 'picked';
@@ -71,7 +73,7 @@ export async function installFakeGoogle(context: BrowserContext, options: FakeOp
   // 2) Application construite (dist/) servie sur l'origine fictive, CSP élargie aux seuls hôtes Google simulés.
   await context.route(ORIGIN + '/**', async (r) => {
     const path = new URL(r.request().url()).pathname;
-    if (path === '/drive-config.json') return r.fulfill({ contentType: 'application/json', body: JSON.stringify(CONFIG) });
+    if (path === '/drive-config.json') return r.fulfill({ contentType: 'application/json', body: options.demo ? 'null' : JSON.stringify(CONFIG) });
     const target = resolve('dist', '.' + (path === '/' ? '/index.html' : path));
     if (!target.startsWith(resolve('dist') + '/')) return r.fulfill({ status: 404, body: '' });
     let body: Buffer;

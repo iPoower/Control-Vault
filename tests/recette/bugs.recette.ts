@@ -1,8 +1,7 @@
-// Recette Phase T — reproductions des anomalies trouvées (AUCUN correctif ici).
-// Chaque test décrit le comportement ATTENDU et est marqué test.fail() : il « réussit » tant que
-// l'anomalie existe et deviendra « unexpectedly passed » (rouge) le jour où elle sera corrigée,
-// pour rappeler de retirer le marqueur. Ces tests ne tournent que dans le workflow « Recette Phase T »
-// (configuration séparée) : ils n'affectent jamais « Vérification complète ».
+// Recette Phase T — tests des anomalies BUG-01 à BUG-06 (comportement ATTENDU).
+// Branche « après » (test/recette-apres) : le correctif fix/recette-messages est fusionné, les marqueurs
+// test.fail() sont donc retirés et ces tests doivent passer. Ils ne tournent que dans le workflow
+// « Recette Phase T » (configuration séparée) : ils n'affectent jamais « Vérification complète ».
 import { test, expect, type Page } from '@playwright/test';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -26,7 +25,6 @@ const status = (page: Page) => page.locator('#main p[role=status]').first().inne
 const phase = (page: Page) => page.locator('#main .panel-body > p').filter({ hasText: /^(En attente|Envoi en cours|Envoyé|Octets distants|Conflit|Synchronisation bloquée|Erreur — action nécessaire)/ }).first().innerText();
 
 test('BUG-01 connexion : fermer (ou bloquer) la fenêtre de consentement Google affiche « Session Google expirée »', async ({ context, page }, info) => {
-  test.fail(true, 'Anomalie connue (recette Phase T) : message trompeur, aucune session n’a jamais existé.');
   await drive(page, context, info, { consent: 'popup-closed' });
   const msg = await status(page), ph = await phase(page);
   note(info, 'BUG-01', `${msg} / ${ph}`, /expirée/.test(msg) || ph === 'Synchronisation bloquée');
@@ -35,7 +33,6 @@ test('BUG-01 connexion : fermer (ou bloquer) la fenêtre de consentement Google 
 });
 
 test('BUG-02 connexion : refuser l’autorisation Google Drive affiche « Session Google expirée » au lieu d’expliquer la permission manquante', async ({ context, page }, info) => {
-  test.fail(true, 'Anomalie connue (recette Phase T) : message trompeur, la cause (permission drive.file refusée) n’est pas dite.');
   await drive(page, context, info, { consent: 'scope-refused' });
   const msg = await status(page);
   note(info, 'BUG-02', msg, /expirée/.test(msg) || !/autoris|permission/i.test(msg));
@@ -44,7 +41,6 @@ test('BUG-02 connexion : refuser l’autorisation Google Drive affiche « Sessio
 });
 
 test('BUG-03 dossier : annuler le sélecteur Google Drive affiche « Erreur — action nécessaire » et « Opération non confirmée »', async ({ context, page }, info) => {
-  test.fail(true, 'Anomalie connue (recette Phase T) : une annulation volontaire est présentée comme une erreur.');
   await drive(page, context, info, { picker: 'cancel' });
   await page.getByRole('button', { name: 'Confirmer ce compte dédié' }).click(); await settle(page);
   await page.getByRole('button', { name: 'Choisir le dossier Google Drive' }).click(); await settle(page);
@@ -55,21 +51,21 @@ test('BUG-03 dossier : annuler le sélecteur Google Drive affiche « Erreur — 
 });
 
 test('BUG-04 cohérence : sur l’origine connectable, l’Accueil annonce « Google Drive — Connexion vérifiée » sans aucun compte connecté', async ({ context, page }, info) => {
-  test.fail(true, 'Anomalie connue (recette Phase T) : état de démonstration présenté comme réel à côté du vrai parcours Google Drive (à arbitrer).');
   if (isIphone(info)) await context.addInitScript(STANDALONE_INIT);
   await installFakeGoogle(context);
   await openApp(page, '#/drive');
   await expect(page.locator('#main p[role=status]').first()).toContainText('Prêt à connecter Google Drive');
   await openApp(page, '#/');
-  const tile = (await page.locator('#main').getByRole('link', { name: /Google Drive/ }).first().innerText()).replace(/\s+/g, ' ');
+  // Après correctif, l'Accueil de démonstration est redirigé vers Google Drive : la tuile peut ne plus exister.
+  const tiles = page.locator('#main').getByRole('link', { name: /Google Drive/ });
+  const tile = (await tiles.count()) ? (await tiles.first().innerText()).replace(/\s+/g, ' ') : `aucune tuile (URL ${new URL(page.url()).hash})`;
   note(info, 'BUG-04', tile, /Connexion vérifiée/.test(tile));
   expect(tile, 'aucun compte Google n’est connecté dans cette session').not.toMatch(/Connexion vérifiée/);
 });
 
 test('BUG-05 accessibilité : « Restaurer cette version » est désactivé sans description accessible de la condition (case de confirmation)', async ({ context, page }, info) => {
-  test.fail(true, 'Anomalie mineure connue (recette Phase T) : bouton désactivé sans aria-describedby ni title.');
   if (isIphone(info)) await context.addInitScript(STANDALONE_INIT);
-  await installFakeGoogle(context);
+  await installFakeGoogle(context, { demo: true }); // écrans de démonstration : mode démo explicite
   await openApp(page, '#/applis/race-control');
   await page.getByRole('button', { name: /Ouvrir la restauration/ }).first().click();
   const go = page.getByRole('button', { name: 'Restaurer cette version' });
@@ -83,9 +79,8 @@ test('BUG-05 accessibilité : « Restaurer cette version » est désactivé sans
 });
 
 test('BUG-06 sauvegarde : « Annuler » devient désactivé pendant le contrôle de l’empreinte sans aucune explication', async ({ context, page }, info) => {
-  test.fail(true, 'Anomalie mineure connue (recette Phase T) : le code annonce « on retire le bouton » mais le laisse désactivé, sans raison affichée.');
   if (isIphone(info)) await context.addInitScript(STANDALONE_INIT);
-  await installFakeGoogle(context);
+  await installFakeGoogle(context, { demo: true }); // écrans de démonstration : mode démo explicite
   await openApp(page, '#/applis');
   // L'état est bref : un observateur enregistre l'instant où « Annuler » passe à disabled et ce qui l'explique alors.
   await page.evaluate(() => {
@@ -100,8 +95,9 @@ test('BUG-06 sauvegarde : « Annuler » devient désactivé pendant le contrôle
     }).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['disabled'] });
   });
   await page.locator('#main').getByRole('button', { name: 'Sauvegarder', exact: true }).first().click();
-  const seen = await expect.poll(() => page.evaluate(() => !!(window as unknown as { __bug06?: unknown }).__bug06), { timeout: 20_000 }).toBe(true).then(() => true, () => false);
-  if (!seen) { note(info, 'BUG-06', 'état transitoire non observé pendant cette exécution', false); test.skip(true, 'état transitoire non observé'); return; }
+  await expect(page.getByRole('heading', { name: 'Sauvegarde terminée et vérifiée' })).toBeVisible({ timeout: 20_000 });
+  const seen = await page.evaluate(() => !!(window as unknown as { __bug06?: unknown }).__bug06);
+  if (!seen) { note(info, 'BUG-06', 'sauvegarde terminée : « Annuler » jamais laissé désactivé (retiré à l’étape de contrôle)', false); return; }
   const why = await page.evaluate(() => (window as unknown as { __bug06: { why: string } }).__bug06.why);
   note(info, 'BUG-06', why ? `description : ${why}` : 'bouton « Annuler » désactivé, ni aria-describedby, ni title, ni texte expliquant que l’envoi ne peut plus être annulé', !why);
   expect(why, 'la raison de la désactivation doit être exposée (ou le bouton retiré)').not.toBe('');
