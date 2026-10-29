@@ -174,7 +174,7 @@ function runBackupInSheet(sheet: SheetHandle, appId: AppId) {
   runBackup(appId, (u) => {
     steps.update(u);
     // L'envoi ne s'annule plus une fois le fichier écrit : on retire le bouton à l'étape de contrôle.
-    if (u.index >= 4) cancel.setAttribute('disabled', '');
+    if (u.index >= 4 && cancel.isConnected) setFoot(sheet);
   }, ctrl.signal)
     .then(({ version, durationMs }) => {
       finished = true;
@@ -325,8 +325,12 @@ export function openRestore(versionId: string) {
         .concat((p.diff?.fields ?? []).filter((f) => f !== 'revision').map((f) => h('li', { dataset: { health: 'unknown' } }, icon('refresh'), `Réglage « ${f} » différent`)));
 
       const ack = h('input', { type: 'checkbox', class: 'check', id: 'restore-ack' });
-      const go = h('button', { class: 'btn btn-primary', type: 'button', disabled: true }, icon('restore'), 'Restaurer cette version');
-      ack.addEventListener('change', () => (go.disabled = !ack.checked || !!p.diff?.identical));
+      // Condition de désactivation exposée par un texte visible (aria-describedby).
+      const go = h('button', { class: 'btn btn-primary', type: 'button', disabled: true, 'aria-describedby': 'restore-go-hint' }, icon('restore'), 'Restaurer cette version');
+      ack.addEventListener('change', () => {
+        go.disabled = !ack.checked || !!p.diff?.identical;
+        if (go.disabled) go.setAttribute('aria-describedby', 'restore-go-hint'); else go.removeAttribute('aria-describedby');
+      });
 
       replace(
         sheet.body,
@@ -339,7 +343,7 @@ export function openRestore(versionId: string) {
         ),
         h('h3', { class: 'section-title' }, 'Ce qui changera'),
         p.diff?.identical
-          ? h('p', { class: 'muted' }, 'Cette version est identique à l’état actuel. Il n’y a rien à restaurer.')
+          ? h('p', { class: 'muted', id: 'restore-go-hint' }, 'Cette version est identique à l’état actuel. Il n’y a rien à restaurer.')
           : h('ul', { class: 'changes' }, changes),
         p.losses.length
           ? h(
@@ -373,6 +377,7 @@ export function openRestore(versionId: string) {
             ack,
             h('span', null, `Je remplace l’état actuel par la version du ${formatDate(version.createdAt)}.`),
           ),
+        !p.diff?.identical && h('p', { class: 'faint small', id: 'restore-go-hint' }, 'Coche cette confirmation pour activer « Restaurer cette version ».'),
       );
       setFoot(sheet, h('button', { class: 'btn', type: 'button', onclick: () => sheet.close() }, 'Annuler'), go);
       go.addEventListener('click', () => runRestoreInSheet(sheet, version, p));

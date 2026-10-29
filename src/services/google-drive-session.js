@@ -76,16 +76,18 @@ const GoogleDriveSession = (() => {
           callback: async response => {
             if (request !== pending || request.epoch !== epoch) return;
             try {
-              if (response.error || typeof response.access_token !== 'string' ||
-                !host.google.accounts.oauth2.hasGrantedAllScopes(response, SCOPE) || response.scope?.split(/\s+/).filter(Boolean).join(' ') !== SCOPE) return fail('auth');
+              // Refus explicite ou autorisation Drive décochée : « scope », distinct d'une session expirée.
+              if (response.error || typeof response.access_token !== 'string') return fail(response.error === 'access_denied' ? 'scope' : 'auth');
+              if (!host.google.accounts.oauth2.hasGrantedAllScopes(response, SCOPE) || response.scope?.split(/\s+/).filter(Boolean).join(' ') !== SCOPE) return fail('scope');
               const seconds = Number(response.expires_in);
               provider.connect(response.access_token, seconds, [SCOPE]);
               token = response.access_token; until = Date.now() + (seconds - 30) * 1000;
               const selected = await provider.identity();
               if (request !== pending || request.epoch !== epoch) return;
               identity = Object.freeze({ ...selected }); pending = null; request.resolve();
-            } catch { if (request !== pending || request.epoch !== epoch) return; pending = null; disconnect(); request.reject(Object.assign(new Error('auth'), { code: 'auth' })); }
-          }, error_callback: () => { if (request !== pending || request.epoch !== epoch) return; pending = null; disconnect(); request.reject(Object.assign(new Error('auth'), { code: 'auth' })); } });
+            } catch (e) { if (request !== pending || request.epoch !== epoch) return; pending = null; disconnect(); const code = e?.code === 'scope' ? 'scope' : 'auth'; request.reject(Object.assign(new Error(code), { code })); }
+          }, // Fenêtre Google fermée, bloquée ou impossible à ouvrir : aucun jeton n'a jamais été reçu.
+          error_callback: () => { if (request !== pending || request.epoch !== epoch) return; pending = null; disconnect(); request.reject(Object.assign(new Error('popup'), { code: 'popup' })); } });
         try { client.requestAccessToken({ prompt: 'select_account' }); }
         catch { pending = null; disconnect(); reject(Object.assign(new Error('auth'), { code: 'auth' })); }
       });
