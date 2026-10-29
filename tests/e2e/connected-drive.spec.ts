@@ -45,9 +45,10 @@ for (const direct of [false, true]) test('application complète, Google simulé 
     const file = files.get(key); if (!file) return json({}, 404);
     return u.searchParams.get('alt') === 'media' ? r.fulfill({ headers, contentType: 'application/json', body: file.bytes }) : json(file.meta);
   });
+  // Origine connectée : les écrans de démonstration (ici Réglages) redirigent vers Google Drive.
   await page.goto(origin + '/#/reglages');
-  await page.getByRole('link', { name: /Copies chiffrées Race Control/ }).click();
   await expect(page.getByRole('heading', { name: 'Google Drive', exact: true })).toBeVisible();
+  await expect(page).toHaveURL(origin + '/#/drive');
   const recoveryLink=page.getByRole('link',{name:'Récupérer sur un appareil neuf dans Race Control'});
   await expect(recoveryLink).toHaveAttribute('href','https://race.example.com/recovery.html');
   await expect(recoveryLink).toHaveAttribute('rel','noopener noreferrer');

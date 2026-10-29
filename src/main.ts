@@ -59,7 +59,11 @@ const viewEl = h('main', { id: 'main', class: 'view', tabindex: '-1' });
 const banners = h('div', { class: 'banners', role: 'region', 'aria-label': 'État du système' });
 const topTitle = h('span', { class: 'topbar-title' });
 const topStatus = h('a', { class: 'top-status mobile-only', href: '#/', 'aria-label': 'État global' });
+// Origine où Google Drive est réellement configuré (production isolée) : aucun écran ni état de
+// démonstration n'y est affiché. La démonstration reste réservée aux builds sans configuration Google.
+const realOnly = () => connectedDrive.state.configured;
 const searchMobile = h('button', { class: 'icon-btn mobile-only', type: 'button', 'aria-label': 'Recherche rapide', onclick: () => openPalette(navigate) }, icon('search'));
+const searchDesktop = h('button', { class: 'search-trigger', type: 'button', onclick: () => openPalette(navigate), 'aria-label': 'Recherche rapide' }, icon('search'), h('span', null, 'Rechercher'), h('kbd', null, /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘ K' : 'Ctrl K'));
 const sideNav = h('nav', { class: 'side-nav', 'aria-label': 'Navigation principale' });
 const tabbar = h('nav', { class: 'tabbar', 'aria-label': 'Navigation principale' });
 const sideFoot = h('div', { class: 'side-foot' });
@@ -74,7 +78,7 @@ const shell = h(
     'aside',
     { class: 'sidebar' },
     h('div', { class: 'brand' }, logo(32), h('span', { class: 'brand-name' }, 'Control Vault', h('span', { class: 'brand-sub' }, 'Stockage et sauvegardes'))),
-    h('button', { class: 'search-trigger', type: 'button', onclick: () => openPalette(navigate), 'aria-label': 'Recherche rapide' }, icon('search'), h('span', null, 'Rechercher'), h('kbd', null, /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘ K' : 'Ctrl K')),
+    searchDesktop,
     sideNav,
     sideFoot,
   ),
@@ -133,6 +137,10 @@ function parse(): { route: Route; params: Record<string, string>; path: string }
 
 function render() {
   const { route, params, path } = parse();
+  if (realOnly() && route.key !== 'drive') {
+    location.replace('#/drive');
+    return;
+  }
   if (current) {
     scrolls.set(current.hash, window.scrollY);
     current.view.destroy?.();
@@ -170,9 +178,11 @@ function paintNav(s: State) {
   const st = globalStatus(s);
   const failures = s.events.filter((e) => e.result === 'failed' && !e.resolved).length;
   const health = st.level === 'ok' ? 'verified' : st.level === 'action' ? 'failed' : st.level === 'attention' ? 'stale' : 'unknown';
+  const nav = realOnly() ? NAV.filter((n) => n.id === 'drive') : NAV;
+  searchMobile.hidden = searchDesktop.hidden = realOnly();
   replace(
     sideNav,
-    NAV.map((n) =>
+    nav.map((n) =>
       h(
         'a',
         { class: 'side-link', href: n.href, 'aria-current': current?.nav === n.id ? 'page' : undefined, dataset: n.id === 'home' ? { health } : undefined },
@@ -184,7 +194,7 @@ function paintNav(s: State) {
   );
   replace(
     tabbar,
-    NAV.filter((n) => n.mobile).map((n) =>
+    nav.filter((n) => n.mobile || realOnly()).map((n) =>
       h(
         'a',
         { class: 'tab', href: n.href, 'aria-current': current?.nav === n.id || (n.id === 'settings' && current?.nav === 'security') ? 'page' : undefined, dataset: n.id === 'home' ? { health } : undefined },
@@ -245,6 +255,7 @@ function showShortcuts() {
 
 let gPending = 0;
 document.addEventListener('keydown', (e) => {
+  if (realOnly()) return; // raccourcis et recherche rapide : écrans de démonstration uniquement
   const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || (e.target as HTMLElement)?.isContentEditable;
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
     e.preventDefault();
@@ -290,9 +301,12 @@ applySettings(store.get());
 viewEl.append(h('div', { class: 'boot', 'aria-busy': 'true', 'aria-label': 'Ouverture du coffre' }, h('div', { class: 'sk', style: 'width: 180px; height: 180px; border-radius: 50%; margin: 24px auto' })));
 
 connectedDrive.subscribe(() => { if (current?.nav === 'drive') { paintNav(store.get()); paintBanners(store.get()); } });
-void connectedDrive.init();
+// Premier rendu seulement après lecture de la configuration : jamais d'état de démonstration affiché
+// avant de savoir si l'origine est réellement connectée à Google Drive.
+const driveReady = connectedDrive.init();
 window.addEventListener('pagehide', () => connectedDrive.disconnect());
 boot()
+  .then(() => driveReady)
   .then(() => {
     render();
     paintBanners(store.get());

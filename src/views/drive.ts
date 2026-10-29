@@ -15,7 +15,7 @@ export function driveView(): View {
       h('section', { class: 'panel' }, h('div', { class: 'panel-body stack' },
         h('p', { role: 'status', 'aria-live': 'polite' }, s.message),
         h('p', { class: 'muted' }, 'Race Control chiffre et déchiffre sur chaque appareil. Control Vault conserve les fichiers opaques : il ne demande jamais ton code et ne peut pas authentifier leur contenu.'),
-        h('p', { class: 'muted' }, 'Choisis le même compte et le même dossier sur le PC et l’iPhone. La synchronisation de Race Control fonctionne aussi lorsque Control Vault est fermé. Les autres écrans restent des démonstrations.'),
+        h('p', { class: 'muted' }, 'Choisis le même compte et le même dossier sur le PC et l’iPhone. La synchronisation de Race Control fonctionne aussi lorsque Control Vault est fermé. ' + (s.configured ? 'Aucun écran de démonstration n’est proposé sur cette origine.' : 'Les autres écrans restent des démonstrations.')),
         s.account ? h('p', null, 'Compte Google sélectionné : ' + s.account) : null,
         s.folder ? h('p', { class: 'wrap' }, 'Dossier dédié sélectionné : ' + s.folder) : null,
         h('p', null, ({ WAITING: 'En attente', SENDING: 'Envoi en cours', UPLOADED: 'Envoyé — relecture requise', VERIFIED_BYTES: 'Octets distants vérifiés — restauration à valider dans Race Control', CONFLICT: 'Conflit', SYNC_BLOCKED: 'Synchronisation bloquée', ERROR: 'Erreur — action nécessaire' })[s.phase]),

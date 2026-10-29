@@ -62,7 +62,18 @@ export class ConnectedDrive {
     if (!this.session || this.state.busy) return Promise.resolve();
     this.epoch++; this.selection = null; this.change({ selected: false, account: null, accountConfirmed: false, folder: null, dedicatedFolders: [], versions: [], receipts: [], phase: 'WAITING' });
     const promise = this.session.connect();
-    return this.action(async epoch => { await promise; this.check(epoch); this.change({ connected: true, account: this.session?.identity?.label || null, accountConfirmed: false, message: 'Compte affiché : confirme explicitement ce compte dédié avant tout accès aux fichiers.' }); });
+    return this.action(async epoch => {
+      // Échec de connexion sans session préalable : jamais « session expirée » ni « synchronisation bloquée ».
+      try { await promise; } catch (e) {
+        if (epoch !== this.epoch) return;
+        const code = (e as { code?: string }).code;
+        this.change({ connected: false, phase: 'WAITING', lastOperationAt: Date.now(), message: code === 'popup'
+          ? 'Connexion Google annulée ou fenêtre bloquée : réessaie (autorise les fenêtres pour ce site).'
+          : code === 'scope' ? 'L’accès au dossier Google Drive n’a pas été accordé : aucun fichier n’est lisible. Reconnecte-toi et autorise l’accès demandé.'
+          : 'Connexion Google non aboutie : aucun compte n’est connecté. Réessaie.' });
+        return;
+      }
+      this.check(epoch); this.change({ connected: true, account: this.session?.identity?.label || null, accountConfirmed: false, message: 'Compte affiché : confirme explicitement ce compte dédié avant tout accès aux fichiers.' }); });
   }
   confirmAccount() {
     if (!this.session?.identity || this.state.busy) return;
@@ -95,7 +106,14 @@ export class ConnectedDrive {
     if (!this.state.accountConfirmed) return Promise.resolve();
     this.epoch++; this.selection = null; this.change({ selected: false, folder: null, versions: [], receipts: [], phase: 'WAITING' });
     const promise = this.session.chooseFolder();
-    return this.action(async epoch => { const selection = await promise; this.check(epoch); this.selection = selection; this.change({ selected: true, folder: selection.folder, versions: [], receipts: [], lastOperationAt: Date.now(), message: 'Dossier sélectionné. Actualise les versions pour les lire.' }); });
+    return this.action(async epoch => {
+      let selection: Awaited<typeof promise>;
+      try { selection = await promise; } catch (e) {
+        // Sélecteur fermé par l'utilisateur : état neutre, pas une erreur.
+        if (epoch === this.epoch && (e as { code?: string }).code === 'cancelled') { this.change({ phase: 'WAITING', message: 'Aucun dossier choisi.' }); return; }
+        throw e;
+      }
+      this.check(epoch); this.selection = selection; this.change({ selected: true, folder: selection.folder, versions: [], receipts: [], lastOperationAt: Date.now(), message: 'Dossier sélectionné. Actualise les versions pour les lire.' }); });
   }
   disconnect() {
     this.epoch++; this.session?.disconnect(); this.selection = null;
