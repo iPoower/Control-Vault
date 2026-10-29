@@ -87,14 +87,22 @@ test('BUG-06 sauvegarde : « Annuler » devient désactivé pendant le contrôle
   if (isIphone(info)) await context.addInitScript(STANDALONE_INIT);
   await installFakeGoogle(context);
   await openApp(page, '#/applis');
-  await page.locator('#main').getByRole('button', { name: 'Sauvegarder', exact: true }).first().click();
-  const cancel = page.locator('dialog[open]').getByRole('button', { name: 'Annuler', exact: true });
-  const seen = await expect(cancel).toBeDisabled({ timeout: 20_000 }).then(() => true, () => false);
-  if (!seen) { note(info, 'BUG-06', 'état transitoire non observé pendant cette exécution', false); test.skip(true, 'état transitoire non observé'); return; }
-  const why = await cancel.evaluate((b) => {
-    const ids = (b.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean);
-    return ids.map((id) => document.getElementById(id)?.textContent?.trim() || '').join(' ') || b.getAttribute('title') || '';
+  // L'état est bref : un observateur enregistre l'instant où « Annuler » passe à disabled et ce qui l'explique alors.
+  await page.evaluate(() => {
+    const w = window as unknown as { __bug06?: { why: string } };
+    new MutationObserver((list) => {
+      for (const m of list) {
+        const b = m.target as HTMLElement;
+        if (w.__bug06 || m.attributeName !== 'disabled' || b.tagName !== 'BUTTON' || b.textContent?.trim() !== 'Annuler' || !b.hasAttribute('disabled')) continue;
+        const ids = (b.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean);
+        w.__bug06 = { why: ids.map((id) => document.getElementById(id)?.textContent?.trim() || '').join(' ') || b.getAttribute('title') || '' };
+      }
+    }).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['disabled'] });
   });
+  await page.locator('#main').getByRole('button', { name: 'Sauvegarder', exact: true }).first().click();
+  const seen = await expect.poll(() => page.evaluate(() => !!(window as unknown as { __bug06?: unknown }).__bug06), { timeout: 20_000 }).toBe(true).then(() => true, () => false);
+  if (!seen) { note(info, 'BUG-06', 'état transitoire non observé pendant cette exécution', false); test.skip(true, 'état transitoire non observé'); return; }
+  const why = await page.evaluate(() => (window as unknown as { __bug06: { why: string } }).__bug06.why);
   note(info, 'BUG-06', why ? `description : ${why}` : 'bouton « Annuler » désactivé, ni aria-describedby, ni title, ni texte expliquant que l’envoi ne peut plus être annulé', !why);
   expect(why, 'la raison de la désactivation doit être exposée (ou le bouton retiré)').not.toBe('');
 });
