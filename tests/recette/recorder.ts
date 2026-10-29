@@ -13,6 +13,8 @@ export interface MatrixRow {
 export interface ErrorRow {
   browser: string; phase: string; context: string; type: 'console' | 'pageerror' | 'dialog';
   text: string; location?: string; at: string;
+  /** Erreur reçue pendant une capture d'écran Playwright (voir error-rules.ts). */
+  pendantCapture?: boolean;
 }
 
 /** Contexte courant (phase / écran / élément) attaché à chaque erreur capturée. */
@@ -20,6 +22,7 @@ export class Recorder {
   readonly errors: ErrorRow[] = [];
   context = '';
   private shotCount = 0;
+  private shooting = 0;
   constructor(readonly browser: string, readonly phase: string) {
     mkdirSync(join(OUT, 'screenshots', browser, phase), { recursive: true });
     mkdirSync(join(OUT, 'traces'), { recursive: true });
@@ -37,18 +40,20 @@ export class Recorder {
     page.on('dialog', (d) => { this.push({ type: 'dialog', text: `${d.type()} : ${d.message()}` }); void d.dismiss().catch(() => {}); });
   }
   private push(e: Omit<ErrorRow, 'browser' | 'phase' | 'context' | 'at'>) {
-    this.errors.push({ browser: this.browser, phase: this.phase, context: this.context, at: new Date().toISOString(), ...e });
+    this.errors.push({ browser: this.browser, phase: this.phase, context: this.context, at: new Date().toISOString(), ...e, ...(this.shooting ? { pendantCapture: true } : {}) });
   }
   /** Erreurs survenues depuis l'index donné (pour attribuer une erreur à une action). */
   since(index: number) { return this.errors.slice(index); }
 
   async shot(page: Page, name: string): Promise<string | undefined> {
     const file = join('screenshots', this.browser, this.phase, `${String(++this.shotCount).padStart(4, '0')}-${slug(name)}.jpg`);
+    this.shooting++;
     try {
       // caret: 'initial' : sinon Playwright injecte une feuille de style refusée par la CSP stricte (cf. tests/e2e/helpers.ts).
       await page.screenshot({ path: join(OUT, file), type: 'jpeg', quality: 55, caret: 'initial', timeout: 5000 });
+      await page.waitForTimeout(50); // laisse arriver les messages console émis par la capture elle-même
       return file;
-    } catch { return undefined; }
+    } catch { return undefined; } finally { this.shooting--; }
   }
 
   write(name: string, data: unknown) {

@@ -81,3 +81,20 @@ test('BUG-05 accessibilité : « Restaurer cette version » est désactivé sans
   note(info, 'BUG-05', described ? `description : ${described}` : 'désactivé, ni aria-describedby ni title (la case « Je remplace l’état actuel… » n’est pas reliée au bouton)', !described);
   expect(described, 'la raison de la désactivation doit être exposée au bouton').not.toBe('');
 });
+
+test('BUG-06 sauvegarde : « Annuler » devient désactivé pendant le contrôle de l’empreinte sans aucune explication', async ({ context, page }, info) => {
+  test.fail(true, 'Anomalie mineure connue (recette Phase T) : le code annonce « on retire le bouton » mais le laisse désactivé, sans raison affichée.');
+  if (isIphone(info)) await context.addInitScript(STANDALONE_INIT);
+  await installFakeGoogle(context);
+  await openApp(page, '#/applis');
+  await page.locator('#main').getByRole('button', { name: 'Sauvegarder', exact: true }).first().click();
+  const cancel = page.locator('dialog[open]').getByRole('button', { name: 'Annuler', exact: true });
+  const seen = await expect(cancel).toBeDisabled({ timeout: 20_000 }).then(() => true, () => false);
+  if (!seen) { note(info, 'BUG-06', 'état transitoire non observé pendant cette exécution', false); test.skip(true, 'état transitoire non observé'); return; }
+  const why = await cancel.evaluate((b) => {
+    const ids = (b.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean);
+    return ids.map((id) => document.getElementById(id)?.textContent?.trim() || '').join(' ') || b.getAttribute('title') || '';
+  });
+  note(info, 'BUG-06', why ? `description : ${why}` : 'bouton « Annuler » désactivé, ni aria-describedby, ni title, ni texte expliquant que l’envoi ne peut plus être annulé', !why);
+  expect(why, 'la raison de la désactivation doit être exposée (ou le bouton retiré)').not.toBe('');
+});
