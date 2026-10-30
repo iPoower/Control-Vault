@@ -1,0 +1,87 @@
+# Recette Phase T — recette testeur de Control Vault (données fictives, Google entièrement simulé).
+#
+# Workflow SÉPARÉ du pipeline de publication : il ne construit rien de publiable, ne publie rien,
+# ne reçoit aucun secret ni variable de configuration Google. Il exécute uniquement
+# tests/recette/ (configuration Playwright dédiée, jamais lancée par `npm run test:e2e`)
+# et archive recette-output/ (matrice, erreurs, captures, traces) pendant 14 jours.
+#
+# Toute modification de ce fichier est une modification de CI : revue humaine obligatoire.
+
+name: Recette Phase T
+
+on:
+  pull_request:
+    paths:
+      - 'tests/recette/**'
+      - '.github/workflows/recette.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: recette-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  recette:
+    name: Recette testeur (Chromium bureau + WebKit iPhone)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 80
+    permissions:
+      contents: read
+    # Même image que « Vérification complète » (pipeline.yml) : navigateurs de la version
+    # exacte du verrou déjà présents, aucune installation système ni `playwright install`.
+    container:
+      image: mcr.microsoft.com/playwright:v1.56.1-noble
+      options: --ipc=host
+    env:
+      RECETTE_SHA: ${{ github.sha }}
+      RECETTE_EXPLORE_MS: '2100000'
+      RECETTE_MONKEY_MS: '300000'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 — SHA vérifié le 23/10/2026
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4 — SHA vérifié le 23/10/2026
+        with:
+          node-version: 22
+          cache: npm
+      - name: Installation (verrouillée)
+        run: npm ci
+      - name: Build de démonstration (sans configuration Google)
+        run: npm run build
+      - name: TypeScript de la recette
+        run: npx tsc -p tests/recette/tsconfig.json
+      - name: Navigateurs Playwright préinstallés
+        timeout-minutes: 2
+        run: |
+          node --input-type=module <<'NODE'
+          import { access } from 'node:fs/promises';
+          import { constants } from 'node:fs';
+          import { chromium, webkit } from '@playwright/test';
+          for (const browser of [chromium, webkit]) {
+            await access(browser.executablePath(), constants.X_OK);
+            console.log(`Navigateur ${browser.name()} présent dans l'image.`);
+          }
+          NODE
+      - name: Recette (parcours, exploration, monkey, reproductions) — Chromium + WebKit iPhone
+        run: npx playwright test -c tests/recette/playwright.recette.config.ts
+        env:
+          CI: '1'
+      - name: Synthèse dans le résumé du run
+        if: always()
+        run: |
+          if [ -f recette-output/MATRICE.md ]; then
+            sed -n '1,/^## Éléments KO/p' recette-output/MATRICE.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "MATRICE.md absente : voir les journaux du job." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Archive de la recette (données fictives uniquement)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4 — SHA vérifié le 23/10/2026
+        with:
+          name: recette-phase-t-${{ github.run_id }}
+          path: recette-output/
+          if-no-files-found: error
+          retention-days: 14
