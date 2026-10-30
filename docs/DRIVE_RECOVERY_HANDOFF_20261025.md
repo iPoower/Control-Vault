@@ -1,6 +1,6 @@
 # Reçus et récupération RC — 25 octobre 2026
 
-Auteur : Bryan Fiarda. Correction sensible, non fusionnée, non déployée.
+Auteur : Bryan. Correction sensible, non fusionnée, non déployée.
 Base dépendante : #19, qui inclut #17. #16 et #18 restent séparées ; #20 est
 une preuve temporaire à ne pas fusionner. Aucune branche source modifiée.
 
